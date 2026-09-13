@@ -1,0 +1,1230 @@
+/* ================================================================
+   PUJO MAP — THEME v2
+   Strategy: 70% clean structure, 20% brutalist character,
+   10% weirdness. Boldness is spent on three things only —
+   the two primary actions and the map markers — everything
+   else stays quiet so those three actually read as important.
+================================================================ */
+
+:root {
+    --ink:        #14120f;
+    --paper:      #fbf3e3;
+    --paper-flat: #fffdf8;
+    --vermillion: #e2361b;
+    --vermillion-dark: #b8280f;
+    --marigold:   #f4b400;
+    --marigold-tint: rgba(244, 180, 0, 0.16);
+    --indigo:     #1e2a5e;
+    --line:       #14120f;
+    --hairline:   rgba(20, 18, 15, 0.16);
+
+    /* Location confidence — a separate semantic palette, deliberately
+       distinct from the brand colours above so confidence always
+       reads as data, never as a brand action. */
+    --confidence-high:        #1f8a4c;
+    --confidence-medium:      #2f6fe4;
+    --confidence-unconfirmed: #b8790a;
+    --confidence-low:         var(--vermillion);
+    --confidence-unlocated:   #7a7570;
+
+    /* Shared between #list-panel's top padding and the zone headers'
+       sticky offset, so they can never quietly drift out of sync. */
+    --topbar-clearance: 90px;
+
+    --font-head: "Archivo Black", Arial, sans-serif;
+    --font-body: "DM Sans", Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", "Courier New", monospace;
+
+    /* Quiet, structural */
+    --border-soft: 1.5px solid var(--hairline);
+    --shadow-soft: 0 2px 10px rgba(20, 18, 15, 0.12);
+
+    /* Loud, spent sparingly */
+    --border-bold: 3px solid var(--line);
+    --shadow-bold: 4px 4px 0 0 var(--line);
+    --shadow-bold-sm: 2px 2px 0 0 var(--line);
+
+    /* Halftone + grain, UI chrome only — never on #map */
+    --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --halftone: radial-gradient(circle at 1px 1px, rgba(20, 18, 15, 0.07) 1px, transparent 0);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    font-family: var(--font-body);
+    color: var(--ink);
+}
+
+body {
+    overflow: hidden;
+    background: var(--paper);
+}
+
+h1, h2, h3 {
+    font-family: var(--font-head);
+    font-weight: 400; /* Archivo Black only ships one weight */
+}
+
+button {
+    font-family: inherit;
+}
+
+/* Shared texture recipe — applied by name to a short, deliberate
+   list of surfaces below. Not a utility class sprinkled everywhere. */
+
+
+/* ================================
+   MAP  (no texture, no theme — stays a plain map)
+================================ */
+
+#map {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100vh;
+    z-index: 1;
+    background: var(--paper);
+}
+
+
+/* Markers are the one piece of "content" that has to compete with
+   busy map tiles, so they keep full brutalist contrast. */
+
+.pandal-marker-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pandal-marker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 20px;
+    height: 20px;
+
+    border: 2px solid var(--line);
+    border-radius: 50%;
+    box-shadow: var(--shadow-bold-sm);
+}
+
+.pandal-marker svg {
+    width: 11px;
+    height: 11px;
+}
+
+.pandal-marker.confidence-high        { background: var(--confidence-high); }
+.pandal-marker.confidence-medium      { background: var(--confidence-medium); }
+.pandal-marker.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
+.pandal-marker.confidence-low         { background: var(--confidence-low); }
+.pandal-marker.confidence-unlocated   { background: var(--confidence-unlocated); }
+
+/* In-plan gets a halo ring, not a colour swap — status colour stays
+   the same signal whether or not a pin is on today's route. */
+.pandal-marker.in-plan {
+    width: 25px;
+    height: 25px;
+
+    box-shadow:
+        0 0 0 3px var(--paper-flat),
+        0 0 0 5px var(--ink);
+}
+
+.pandal-marker.in-plan svg {
+    width: 13px;
+    height: 13px;
+}
+
+.leaflet-popup-content-wrapper {
+    padding: 0;
+    border-radius: 2px;
+    border: 2px solid var(--line);
+    box-shadow: var(--shadow-soft);
+    background-color: var(--paper-flat);
+    background-image: var(--halftone), var(--noise);
+    background-size: 5px 5px, 130px 130px;
+}
+
+.leaflet-popup-content {
+    margin: 0;
+    width: auto !important;
+}
+
+.leaflet-popup-tip {
+    display: none;
+}
+
+.leaflet-container a.leaflet-popup-close-button {
+    color: var(--ink);
+    font-size: 20px;
+    padding: 6px 8px 0 0;
+}
+
+.leaflet-control-zoom {
+    border: 1.5px solid var(--line) !important;
+    border-radius: 3px !important;
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+}
+
+.leaflet-control-zoom a {
+    border-radius: 0 !important;
+    background: var(--paper-flat) !important;
+    color: var(--ink) !important;
+}
+
+.leaflet-control-zoom a:hover {
+    background: var(--paper) !important;
+}
+
+.leaflet-control-attribution {
+    background: var(--paper-flat) !important;
+    border: 1px solid var(--hairline) !important;
+    border-radius: 3px !important;
+    font-size: 10px !important;
+    font-family: var(--font-mono);
+}
+
+
+/* ================================
+   TOP BAR — clean structure.
+   It's infrastructure you see on every screen; it should get
+   out of the way, not compete with the pins or the plan button.
+================================ */
+
+.topbar {
+    position: fixed;
+
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+
+    z-index: 1000;
+
+    width: min(820px, calc(100% - 30px));
+
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    padding: 11px;
+
+    background-color: var(--paper-flat);
+    background-image: var(--halftone), var(--noise);
+    background-size: 5px 5px, 130px 130px;
+
+    border: 1.5px solid var(--line);
+    border-radius: 3px;
+
+    box-shadow: var(--shadow-soft);
+}
+
+
+/* ================================
+   BRAND — the one typographic "weird" flourish in the app.
+================================ */
+
+.brand {
+    min-width: max-content;
+}
+
+.brand h1 {
+    margin: 0;
+
+    font-size: 20px;
+    letter-spacing: -0.01em;
+    line-height: 1;
+
+    color: var(--ink);
+    text-shadow: 2.5px 2.5px 0 var(--marigold);
+}
+
+#pandal-count {
+    display: block;
+
+    margin-top: 5px;
+
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+
+    color: var(--ink);
+    opacity: 0.6;
+}
+
+
+/* ================================
+   SEARCH — clean, quiet, gets out of the way.
+================================ */
+
+.search-wrapper {
+    position: relative;
+
+    flex: 1;
+}
+
+#search {
+    width: 100%;
+
+    padding: 10px 40px 10px 13px;
+
+    border: var(--border-soft);
+    border-radius: 3px;
+
+    outline: none;
+
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+
+    background: var(--paper);
+    color: var(--ink);
+
+    transition: border-color 0.1s ease;
+}
+
+/* Suppress every browser's built-in search-clear control — we use
+   our own #clear-search button instead. Without this, WebKit/Blink
+   render their native "×" on top of ours, giving two. */
+#search::-webkit-search-cancel-button,
+#search::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+#search::-ms-clear,
+#search::-ms-reveal {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+#search::placeholder {
+    color: var(--ink);
+    opacity: 0.4;
+}
+
+#search:focus {
+    background: var(--paper-flat);
+    border-color: var(--ink);
+}
+
+#clear-search {
+    position: absolute;
+
+    right: 6px;
+    top: 50%;
+
+    transform: translateY(-50%);
+
+    width: 26px;
+    height: 26px;
+
+    border: none;
+    border-radius: 3px;
+
+    background: none;
+
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1;
+
+    color: var(--ink);
+    opacity: 0.55;
+
+    cursor: pointer;
+
+    display: none;
+}
+
+#clear-search:hover {
+    opacity: 1;
+    background: var(--marigold-tint);
+}
+
+
+/* ================================
+   PLAN BUTTON — one of the three loud moments in the app.
+   Everything else near it is quiet on purpose so this pops.
+================================ */
+
+#plan-button {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+
+    border: 2.5px solid var(--line);
+
+    padding: 10px 14px;
+
+    border-radius: 3px;
+
+    background: var(--vermillion);
+    color: var(--paper-flat);
+
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 13px;
+
+    cursor: pointer;
+    white-space: nowrap;
+
+    box-shadow: var(--shadow-bold-sm);
+
+    transition: transform 0.05s ease, box-shadow 0.05s ease;
+}
+
+#plan-button:hover {
+    background: var(--vermillion-dark);
+}
+
+#plan-button:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0 0 0 0 var(--line);
+}
+
+/* Weird touch #2: a rubber-stamp tilt on the count, instead of a
+   perfectly centred badge like every other app has. */
+#plan-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 19px;
+    height: 19px;
+
+    margin-left: 8px;
+    padding: 0 4px;
+
+    border: 2px solid var(--paper-flat);
+    border-radius: 50%;
+
+    background: var(--ink);
+    color: var(--paper-flat);
+
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+
+    transform: rotate(-6deg);
+}
+
+
+/* ================================
+   LIST TOGGLE — quiet by default, deliberately less loud than the
+   Plan button so the two don't compete for attention. Reads as a
+   pressed "tab" when list view is active.
+================================ */
+
+#list-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+
+    border: 1.5px solid var(--hairline);
+    border-radius: 3px;
+
+    background: var(--paper);
+    color: var(--ink);
+
+    cursor: pointer;
+
+    transition: background-color 0.1s ease, border-color 0.1s ease;
+}
+
+#list-toggle svg {
+    width: 16px;
+    height: 16px;
+}
+
+#list-toggle:hover {
+    border-color: var(--ink);
+}
+
+#list-toggle.active {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper-flat);
+}
+
+
+/* ================================
+   SEARCH RESULTS — clean list, quiet hover.
+================================ */
+
+#search-results {
+    position: fixed;
+
+    z-index: 999;
+
+    top: 90px;
+    left: 50%;
+
+    transform: translateX(-50%);
+
+    width: min(820px, calc(100% - 30px));
+
+    max-height: 360px;
+
+    overflow-y: auto;
+
+    background-color: var(--paper-flat);
+    background-image: var(--halftone), var(--noise);
+    background-size: 5px 5px, 130px 130px;
+
+    border: 1.5px solid var(--line);
+    border-radius: 3px;
+
+    box-shadow: var(--shadow-soft);
+
+    display: none;
+}
+
+.search-result {
+    padding: 11px 14px;
+
+    border-bottom: 1px solid var(--hairline);
+
+    cursor: pointer;
+
+    transition: background-color 0.1s ease;
+}
+
+.search-result:last-child {
+    border-bottom: none;
+}
+
+.search-result:hover {
+    background-color: var(--marigold-tint);
+}
+
+.search-result-name {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.search-result-address {
+    margin-top: 3px;
+
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 400;
+
+    color: var(--ink);
+    opacity: 0.6;
+}
+
+.no-results {
+    padding: 16px;
+
+    font-family: var(--font-body);
+    font-weight: 500;
+
+    color: var(--ink);
+    opacity: 0.55;
+
+    font-size: 14px;
+}
+
+
+/* ================================
+   PLAN PANEL — quiet shell, one confident colour band inside.
+================================ */
+
+#plan-panel {
+    position: fixed;
+
+    z-index: 1100;
+
+    top: 15px;
+    right: 15px;
+
+    width: 350px;
+    max-width: calc(100% - 30px);
+
+    max-height: calc(100vh - 30px);
+
+    display: none;
+    flex-direction: column;
+
+    background: var(--paper-flat);
+
+    border: 1.5px solid var(--line);
+    border-radius: 3px;
+
+    box-shadow: var(--shadow-soft);
+
+    overflow: hidden;
+}
+
+
+/* Header — the one saturated block in the panel. Everything below
+   it is deliberately quiet so this reads as "you're in a mode now". */
+
+.plan-header {
+    display: flex;
+
+    align-items: center;
+    justify-content: space-between;
+
+    padding: 15px 16px;
+
+    background: var(--indigo);
+    color: var(--paper-flat);
+}
+
+.plan-header h2 {
+    margin: 0;
+
+    font-size: 16px;
+}
+
+#plan-summary {
+    display: block;
+
+    margin-top: 4px;
+
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+
+    color: var(--paper-flat);
+    opacity: 0.75;
+}
+
+#close-plan {
+    width: 28px;
+    height: 28px;
+
+    border: none;
+    border-radius: 3px;
+
+    background: transparent;
+    color: var(--paper-flat);
+
+    font-size: 17px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    opacity: 0.85;
+}
+
+#close-plan:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+
+/* List — quiet rows, hairline dividers, no per-row shadow/border. */
+
+#plan-list {
+    padding: 0;
+
+    background-color: var(--paper-flat);
+    background-image: var(--halftone), var(--noise);
+    background-size: 5px 5px, 130px 130px;
+
+    overflow-y: auto;
+}
+
+.plan-item {
+    display: flex;
+
+    align-items: center;
+
+    gap: 10px;
+
+    padding: 11px 15px;
+
+    border-bottom: 1px solid var(--hairline);
+
+    cursor: grab;
+}
+
+.plan-item:active {
+    cursor: grabbing;
+}
+
+.plan-number {
+    width: 24px;
+    height: 24px;
+
+    flex-shrink: 0;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    border: 1.5px solid var(--line);
+    border-radius: 50%;
+
+    background: var(--paper);
+
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.plan-info {
+    flex: 1;
+
+    min-width: 0;
+}
+
+.plan-name {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 700;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.plan-address {
+    margin-top: 2px;
+
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    font-weight: 400;
+
+    color: var(--ink);
+    opacity: 0.6;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.remove-plan-item {
+    border: none;
+    border-radius: 3px;
+
+    background: none;
+
+    color: var(--ink);
+    opacity: 0.5;
+
+    font-size: 17px;
+    font-weight: 700;
+
+    width: 26px;
+    height: 26px;
+
+    cursor: pointer;
+}
+
+.remove-plan-item:hover {
+    opacity: 1;
+    background: var(--marigold-tint);
+}
+
+
+/* Empty state */
+
+.plan-empty {
+    padding: 34px 20px;
+
+    text-align: center;
+
+    color: var(--ink);
+    opacity: 0.55;
+
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+
+/* ================================
+   POPUP — quiet card, one clear bold action inside it.
+================================ */
+
+.pandal-card {
+    min-width: 235px;
+    max-width: 275px;
+
+    padding: 13px 14px 14px;
+}
+
+.pandal-card h3 {
+    margin: 0 0 2px;
+
+    font-size: 15px;
+    line-height: 1.25;
+}
+
+.pandal-club {
+    margin: 0 0 8px;
+
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    font-weight: 500;
+    font-style: italic;
+
+    color: var(--ink);
+    opacity: 0.6;
+}
+
+.pandal-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+
+    gap: 6px;
+
+    margin-bottom: 10px;
+}
+
+.zone-tag {
+    display: inline-block;
+
+    padding: 2.5px 7px;
+
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+
+    background: var(--paper);
+
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+
+    color: var(--ink);
+    opacity: 0.7;
+}
+
+/* Status badge — plain rectangular chip, same icon language the
+   markers use, no tab/folder shape. */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+
+    gap: 5px;
+
+    padding: 3px 8px;
+
+    border-radius: 3px;
+
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+
+    color: #fff;
+}
+
+.status-badge svg {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+}
+
+.status-badge.confidence-high        { background: var(--confidence-high); }
+.status-badge.confidence-medium      { background: var(--confidence-medium); }
+.status-badge.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
+.status-badge.confidence-low         { background: var(--confidence-low); }
+.status-badge.confidence-unlocated   { background: var(--confidence-unlocated); }
+
+.pandal-address {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.45;
+
+    color: var(--ink);
+}
+
+.pandal-landmark {
+    margin-top: 3px;
+
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 400;
+
+    color: var(--ink);
+    opacity: 0.6;
+}
+
+.popup-buttons {
+    display: flex;
+
+    gap: 7px;
+
+    margin-top: 13px;
+}
+
+.maps-button,
+.add-plan-button {
+    flex: 1;
+
+    padding: 9px 6px;
+
+    text-align: center;
+    text-decoration: none;
+
+    border-radius: 3px;
+
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 12px;
+
+    cursor: pointer;
+
+    transition: transform 0.05s ease, box-shadow 0.05s ease;
+}
+
+/* The one bold action in the card. */
+.maps-button {
+    border: 2px solid var(--line);
+    background: var(--vermillion);
+    color: var(--paper-flat);
+
+    box-shadow: var(--shadow-bold-sm);
+}
+
+.maps-button:hover {
+    background: var(--vermillion-dark);
+}
+
+.maps-button:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0 0 0 0 var(--line);
+}
+
+/* The quiet secondary action, right next to it. */
+.add-plan-button {
+    border: 1.5px solid var(--hairline);
+    background: transparent;
+    color: var(--ink);
+}
+
+.add-plan-button:hover {
+    border-color: var(--ink);
+    background: var(--paper);
+}
+
+
+/* ================================
+   ROUTE ACTIONS — same primary/secondary split as the popup.
+================================ */
+
+.plan-actions {
+    display: flex;
+    gap: 10px;
+
+    padding: 12px 15px 15px;
+
+    border-top: 1px solid var(--hairline);
+}
+
+.plan-actions button {
+    flex: 1;
+
+    padding: 10px;
+
+    border-radius: 3px;
+
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 13px;
+
+    cursor: pointer;
+
+    transition: transform 0.05s ease, box-shadow 0.05s ease;
+}
+
+/* Primary — bold. */
+#show-route {
+    border: 2px solid var(--line);
+    background: var(--vermillion);
+    color: var(--paper-flat);
+
+    box-shadow: var(--shadow-bold-sm);
+}
+
+#show-route:hover {
+    background: var(--vermillion-dark);
+}
+
+#show-route:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0 0 0 0 var(--line);
+}
+
+/* Secondary / destructive-lite — quiet. */
+#clear-plan {
+    border: 1.5px solid var(--hairline);
+    background: transparent;
+    color: var(--ink);
+}
+
+#clear-plan:hover {
+    border-color: var(--ink);
+    background: var(--paper);
+}
+
+
+/* ================================
+   DRAGGABLE PLAN ITEMS
+================================ */
+
+.plan-item.dragging {
+    opacity: 0.4;
+}
+
+.plan-item.drag-over {
+    border-top: 2px solid var(--vermillion);
+}
+
+
+/* ================================
+   ROUTE SUMMARY
+================================ */
+
+#route-summary {
+    display: none;
+
+    padding: 10px 15px;
+
+    background: var(--marigold-tint);
+
+    border-top: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+#route-summary strong {
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+
+/* ================================
+   LIST VIEW
+   Replaces the map entirely while open (see setViewMode in app.js) —
+   never rendered on top of the live map, which is the whole reason
+   it exists. Plain rows; tapping one reuses the exact same
+   .pandal-card the map popup uses, just wider.
+================================ */
+
+#list-panel {
+    position: fixed;
+    inset: 0;
+
+    z-index: 1;
+
+    display: none;
+
+    padding-top: var(--topbar-clearance);
+
+    overflow-y: auto;
+
+    background: var(--paper);
+}
+
+.list-zone-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    padding: 10px min(15%, 60px);
+
+    background-color: var(--paper);
+    background-image: var(--halftone), var(--noise);
+    background-size: 5px 5px, 130px 130px;
+
+    border-bottom: 1.5px solid var(--hairline);
+    border-top: 1.5px solid var(--hairline);
+    margin-top: -1.5px;
+
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+
+    color: var(--ink);
+    opacity: 0.8;
+}
+
+.list-zone-count {
+    opacity: 0.7;
+}
+
+.list-row {
+    border-bottom: 1px solid var(--hairline);
+
+    background: var(--paper-flat);
+}
+
+.list-row-summary {
+    display: flex;
+    align-items: center;
+
+    width: 100%;
+
+    gap: 10px;
+
+    padding: 13px min(15%, 60px);
+
+    border: none;
+    background: none;
+
+    text-align: left;
+    cursor: pointer;
+}
+
+.list-row-dot {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+
+    border-radius: 50%;
+    border: 1.5px solid var(--line);
+}
+
+.list-row-dot.confidence-high        { background: var(--confidence-high); }
+.list-row-dot.confidence-medium      { background: var(--confidence-medium); }
+.list-row-dot.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
+.list-row-dot.confidence-low         { background: var(--confidence-low); }
+.list-row-dot.confidence-unlocated   { background: var(--confidence-unlocated); }
+
+.list-row-text {
+    flex: 1;
+    min-width: 0;
+
+    display: flex;
+    flex-direction: column;
+}
+
+.list-row-name {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 700;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.list-row-sub {
+    margin-top: 2px;
+
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+
+    color: var(--ink);
+    opacity: 0.55;
+}
+
+.list-row-chevron {
+    flex-shrink: 0;
+
+    font-size: 18px;
+    color: var(--ink);
+    opacity: 0.35;
+
+    transition: transform 0.1s ease;
+}
+
+.list-row.open .list-row-chevron {
+    transform: rotate(90deg);
+}
+
+.list-row-detail {
+    padding: 0 min(15%, 60px);
+}
+
+/* Let the card fill the row instead of staying popup-width. */
+.list-row-detail .pandal-card {
+    min-width: 0;
+    max-width: none;
+    padding: 0 0 16px;
+}
+
+.list-empty {
+    padding: 60px 20px;
+
+    text-align: center;
+
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+
+    color: var(--ink);
+    opacity: 0.55;
+}
+
+
+/* ================================
+   MOBILE
+================================ */
+
+@media (max-width: 600px) {
+
+    .topbar {
+        top: 10px;
+        width: calc(100% - 20px);
+        padding: 9px;
+    }
+
+    .brand {
+        display: none;
+    }
+
+    #plan-button {
+        padding: 10px 12px;
+    }
+
+    #search-results {
+        top: 70px;
+        width: calc(100% - 20px);
+    }
+
+    #list-panel {
+        --topbar-clearance: 72px;
+    }
+
+    .list-row-summary,
+    .list-row-detail {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+
+    #plan-panel {
+        top: auto;
+        right: 10px;
+        bottom: 10px;
+        left: 10px;
+
+        width: auto;
+        max-width: none;
+
+        max-height: 70vh;
+    }
+}
