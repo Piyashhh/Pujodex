@@ -1,21 +1,42 @@
 // ========================================
-// PUJO MAP — VERSION 0.6
+// PUJO MAP — VERSION 0.8
 //
-// Data source: merged_puja_dataset.xlsx (rich schema — 39 columns).
-// Only a handful of those columns are user-facing; see
-// normalizePandal() below for exactly which ones and why.
+// Data source: Dataset_5_Cleaned.xlsx (23 columns, 403 pandals —
+// scope now spans Kolkata plus Howrah, Hooghly, North & South 24
+// Parganas, and scattered entries further afield). Only a handful of
+// those columns are user-facing; see normalizePandal() below for
+// exactly which ones and why.
 //
-// Location confidence (derived from the "Confidence" column) drives
-// both the map markers and the list badges:
-//   high         → shown on map, green check
-//   medium       → shown on map, blue ≈
-//   unconfirmed  → list only, amber clock
-//   low          → list only, vermillion warning triangle
-//   unlocated    → list only (no coordinates at all), grey "?"
+// Location confidence drives both the map markers and the list
+// badges, ranked highest to lowest:
+//   committee-confirmed → shown on map, violet shield-check
+//   high                → shown on map, green check
+//   medium              → shown on map, blue ≈
+//   unconfirmed         → list only, amber clock
+//   low                 → list only, vermillion warning triangle
+//   unlocated           → list only (no coordinates), grey "?"
 //
-// Only high/medium confidence pandals become map markers — the rest
-// have either no coordinate or one we don't trust yet, and plotting
-// ~380 markers was the main source of the lag this version fixes.
+// committee-confirmed comes from a `Committee Confirmed` column that
+// doesn't exist in the sheet yet (a committee confirming its own
+// listing outranks anything the Google-verification pipeline can
+// establish) — see normalizePandal() in section 6. Everything below
+// that reads from "Confidence" itself, which this dataset writes as
+// a descriptive phrase, not a bare word — e.g. "High
+// (Google-verified)", "Unconfirmed (single source)", "Needs manual
+// review" — so confidenceKey() matches on the LEADING word only.
+// "Needs manual review" always means no coordinates in this dataset,
+// so it falls through to "unlocated" without needing its own case.
+//
+// Only committee-confirmed/high/medium pandals become map markers —
+// the rest have either no coordinate or one we don't trust yet, and
+// plotting every row was the main source of the lag an earlier
+// version fixed.
+//
+// v0.8: a tap-to-locate "you are here" marker (section 25); the
+// committee-confirmed tier above; and pandals with no Zone on file
+// now group under "Other Zone" (section 17's groupByZone) instead of
+// a separate "Other" bucket, which looked like two near-identical
+// catch-all categories in the list.
 // ========================================
 
 
@@ -44,6 +65,10 @@ L.tileLayer(
 // ----------------------------------------
 
 const CONFIDENCE_META = {
+    "committee-confirmed": {
+        label: "Committee-Confirmed",
+        icon: `<svg viewBox="0 0 16 16" fill="none"><path d="M8 1.4L13.2 3.3V7.4C13.2 10.7 11 13.1 8 14.4C5 13.1 2.8 10.7 2.8 7.4V3.3L8 1.4Z" stroke="white" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.6 8L7.2 9.6L10.4 6.1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    },
     high: {
         label: "High Confidence",
         icon: `<svg viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
@@ -67,18 +92,28 @@ const CONFIDENCE_META = {
 };
 
 // Anything shown on the map at all comes from this list.
-const MAP_VISIBLE_CONFIDENCE = ["high", "medium"];
+const MAP_VISIBLE_CONFIDENCE = ["committee-confirmed", "high", "medium"];
 
+// Committee confirmation is a separate, stronger channel than the
+// Google-verification pipeline that fills in "Confidence" — so it's
+// read from its own column and, when present, overrides whatever
+// tier the Confidence column would otherwise produce. See
+// normalizePandal() in section 6.
 function confidenceKey(raw) {
 
+    // Matches on the LEADING word, not an exact string — this dataset
+    // writes confidence as a phrase ("High (Google-verified)",
+    // "Unconfirmed (single source)") rather than a bare label. Any
+    // value that doesn't start with a recognized tier — including
+    // "Needs manual review" — correctly falls through to "unlocated".
     const value =
         String(raw || "")
             .trim()
             .toLowerCase();
 
-    if (value === "high") return "high";
-    if (value === "medium") return "medium";
-    if (value === "low") return "low";
+    if (value.startsWith("high")) return "high";
+    if (value.startsWith("medium")) return "medium";
+    if (value.startsWith("low")) return "low";
     if (value.startsWith("unconfirmed")) return "unconfirmed";
 
     return "unlocated";
@@ -171,19 +206,22 @@ function savePlan() {
 
 // ----------------------------------------
 // 6. NORMALIZE A RAW ROW
-// The sheet has 39 columns; most are data-provenance internals
-// (D1/D2 match method, match score, distance-between-sources, etc.)
-// that are genuinely useful for your own auditing but not for a
-// visitor deciding where to go. Only the columns below make it in.
+// The sheet has 23 columns; several (Municipality, Post Office,
+// Police Station, District, State, Country, Pincode, Puja Estd.
+// Year, Puja Type, Official Website/E-mail/Facebook, Google Maps
+// Link) exist for provenance/enrichment but aren't surfaced yet.
+// Only the columns below make it into the app today — see
+// Architecture.md's field-mapping table for the full column list
+// and which of these are candidates for a future UI pass.
 // ----------------------------------------
 
 function normalizePandal(raw) {
 
     const lat =
-        Number(raw["Best Latitude"]);
+        Number(raw["Latitude"]);
 
     const lng =
-        Number(raw["Best Longitude"]);
+        Number(raw["Longitude"]);
 
     const hasCoords =
         Number.isFinite(lat) &&
@@ -196,8 +234,19 @@ function normalizePandal(raw) {
     const club =
         String(raw["Name of the Club"] || "").trim();
 
+    // "Committee Confirmed" doesn't exist in the sheet yet — this
+    // reads it defensively (Yes/Y/true, case-insensitive) so it's a
+    // no-op until that column is added. When it IS set, it overrides
+    // whatever confidenceKey() derives from the Confidence column —
+    // a committee confirming its own details outranks anything the
+    // Google-verification pipeline can establish.
+    const committeeConfirmed =
+        /^(yes|y|true)$/i.test(
+            String(raw["Committee Confirmed"] || "").trim()
+        );
+
     return {
-        id: String(raw["Puja Code #"] || "").trim(),
+        id: String(raw["Puja ID"] || "").trim(),
         name,
         club: club.toLowerCase() === name.toLowerCase() ? "" : club,
         zone: String(raw["Zone"] || "").trim(),
@@ -207,7 +256,10 @@ function normalizePandal(raw) {
         lat: hasCoords ? lat : null,
         lng: hasCoords ? lng : null,
         hasCoords,
-        confidence: confidenceKey(raw["Confidence"])
+        confidence:
+            committeeConfirmed
+                ? "committee-confirmed"
+                : confidenceKey(raw["Confidence"])
     };
 }
 
@@ -969,6 +1021,9 @@ const listPanel =
 const mapElement =
     document.getElementById("map");
 
+const mapControls =
+    document.querySelector(".map-controls");
+
 
 listToggle.addEventListener(
     "click",
@@ -990,6 +1045,9 @@ function setViewMode(mode) {
 
     mapElement.style.display =
         isList ? "none" : "block";
+
+    mapControls.style.display =
+        isList ? "none" : "flex";
 
     listPanel.style.display =
         isList ? "block" : "none";
@@ -1099,8 +1157,10 @@ function renderListView(data) {
 }
 
 // Zones sorted alphabetically; pandals with no zone on file are
-// grouped under "Other" and always sorted last, rather than
-// wherever "Other" happens to fall alphabetically.
+// grouped under "Other Zone" — the same label already used for real
+// pandals whose actual zone value is "Other Zone" — rather than a
+// separate "Other" bucket, which looked like two near-identical
+// catch-all categories in the list. Always sorted last.
 function groupByZone(data) {
 
     const groups = new Map();
@@ -1108,7 +1168,7 @@ function groupByZone(data) {
     data.forEach(pandal => {
 
         const zone =
-            pandal.zone || "Other";
+            pandal.zone || "Other Zone";
 
         if (!groups.has(zone)) {
             groups.set(zone, []);
@@ -1121,8 +1181,8 @@ function groupByZone(data) {
     const zoneNames =
         [...groups.keys()].sort((a, b) => {
 
-            if (a === "Other") return 1;
-            if (b === "Other") return -1;
+            if (a === "Other Zone") return 1;
+            if (b === "Other Zone") return -1;
 
             return a.localeCompare(b);
         });
@@ -1776,7 +1836,141 @@ function clearRoute() {
 }
 
 // ----------------------------------------
-// 25. START
+// 25. USER LOCATION
+// Tap-to-locate, not automatic on load — this only ever runs after
+// the visitor taps the button, so a permission prompt never fires
+// unprompted and a denial never blocks anything else in the app.
+// ----------------------------------------
+
+const locateButton =
+    document.getElementById("locate-button");
+
+let userLocationMarker = null;
+let userAccuracyCircle = null;
+
+
+locateButton.addEventListener(
+    "click",
+    locateUser
+);
+
+
+function locateUser() {
+
+    if (!("geolocation" in navigator)) {
+
+        alert(
+            "Location isn't available in this browser."
+        );
+
+        return;
+    }
+
+
+    locateButton.classList.add("locating");
+    locateButton.classList.remove("locate-error");
+
+
+    navigator.geolocation.getCurrentPosition(
+
+        position => {
+
+            locateButton.classList.remove("locating");
+
+            showUserLocation(
+                position.coords.latitude,
+                position.coords.longitude,
+                position.coords.accuracy
+            );
+        },
+
+        error => {
+
+            locateButton.classList.remove("locating");
+            locateButton.classList.add("locate-error");
+
+            handleLocationError(error);
+        },
+
+        {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 60000
+        }
+    );
+}
+
+
+function showUserLocation(lat, lng, accuracy) {
+
+    if (userLocationMarker) {
+        map.removeLayer(userLocationMarker);
+    }
+
+    if (userAccuracyCircle) {
+        map.removeLayer(userAccuracyCircle);
+    }
+
+
+    userLocationMarker = L.marker(
+        [lat, lng],
+        {
+            icon: L.divIcon({
+                className: "user-location-wrap",
+                html: `<div class="user-location-dot"></div>`,
+                iconSize: [14, 14],
+                iconAnchor: [7, 7]
+            }),
+            zIndexOffset: 1000,
+            interactive: false,
+            keyboard: false
+        }
+    ).addTo(map);
+
+
+    if (Number.isFinite(accuracy)) {
+
+        userAccuracyCircle = L.circle(
+            [lat, lng],
+            {
+                radius: accuracy,
+                className: "user-accuracy-circle",
+                interactive: false,
+                weight: 1
+            }
+        ).addTo(map);
+    }
+
+
+    map.setView(
+        [lat, lng],
+        Math.max(map.getZoom(), 15)
+    );
+}
+
+
+function handleLocationError(error) {
+
+    let message =
+        "Couldn't get your location. Try again.";
+
+    if (error.code === error.PERMISSION_DENIED) {
+
+        message =
+            "Location permission denied — you can still browse the map manually.";
+
+    } else if (error.code === error.TIMEOUT) {
+
+        message =
+            "Location request timed out. Try again.";
+    }
+
+    alert(message);
+}
+
+
+// ----------------------------------------
+// 26. START
 // ----------------------------------------
 
 loadSavedPlan();

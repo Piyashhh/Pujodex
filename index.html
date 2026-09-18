@@ -73,6 +73,20 @@
     <!-- Map -->
     <main>
         <div id="map"></div>
+
+        <!-- Floating map controls — visible in map mode only -->
+        <div class="map-controls">
+
+            <button id="locate-button" aria-label="Show my location">
+                <svg viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.6"/>
+                    <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                    <path d="M12 1v3.2M12 19.8V23M1 12h3.2M19.8 12H23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+            </button>
+
+        </div>
+
         <div id="list-panel"></div>
     </main>
 

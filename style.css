@@ -20,7 +20,11 @@
 
     /* Location confidence — a separate semantic palette, deliberately
        distinct from the brand colours above so confidence always
-       reads as data, never as a brand action. */
+       reads as data, never as a brand action. Committee-confirmed
+       gets its own violet rather than reusing indigo/marigold —
+       those are brand colours, and this palette stays clear of them
+       on purpose. */
+    --confidence-committee:   #6a3ea1;
     --confidence-high:        #1f8a4c;
     --confidence-medium:      #2f6fe4;
     --confidence-unconfirmed: #b8790a;
@@ -94,6 +98,128 @@ button {
 }
 
 
+/* ================================
+   MAP CONTROLS — currently just the locate button, kept as its own
+   named cluster so a future control can drop in without
+   restructuring this section. Floating, bottom-right, thumb-
+   reachable. Kept as plain siblings of #map (not children of it) so
+   Leaflet never has a reason to touch them, and shown/hidden
+   alongside #map in setViewMode().
+================================ */
+
+.map-controls {
+    position: fixed;
+    right: 15px;
+    bottom: max(20px, env(safe-area-inset-bottom));
+
+    z-index: 500;
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+#locate-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+
+    border: var(--border-soft);
+    border-radius: 50%;
+
+    background: var(--paper-flat);
+    color: var(--ink);
+    box-shadow: var(--shadow-soft);
+
+    cursor: pointer;
+
+    transition: border-color 0.1s ease, transform 0.1s ease;
+}
+
+#locate-button svg {
+    width: 18px;
+    height: 18px;
+}
+
+#locate-button:hover {
+    border-color: var(--ink);
+}
+
+#locate-button.locating svg {
+    animation: locate-pulse 1s ease-in-out infinite;
+}
+
+#locate-button.locate-error {
+    border-color: var(--vermillion);
+    color: var(--vermillion);
+}
+
+@keyframes locate-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+}
+
+
+/* ================================
+   USER LOCATION — "you are here" marker.
+   Deliberately not part of the confidence palette: this is the
+   visitor's own position, not a pandal, and stays visually distinct
+   from every marker on the map. Centered the same way
+   .pandal-marker-wrap centers its icon.
+================================ */
+
+.user-location-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.user-location-dot {
+    position: relative;
+
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+
+    background: var(--confidence-medium);
+    border: 2px solid var(--paper-flat);
+    box-shadow: 0 1px 4px rgba(20, 18, 15, 0.35);
+}
+
+.user-location-dot::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border-radius: 50%;
+
+    background: var(--confidence-medium);
+    opacity: 0.5;
+
+    animation: user-location-pulse 2s ease-out infinite;
+}
+
+@keyframes user-location-pulse {
+    0%   { transform: scale(1);   opacity: 0.6; }
+    100% { transform: scale(3.4); opacity: 0;   }
+}
+
+.user-accuracy-circle {
+    stroke: var(--confidence-medium);
+    stroke-width: 1;
+    fill: var(--confidence-medium);
+    fill-opacity: 0.08;
+}
+
 /* Markers are the one piece of "content" that has to compete with
    busy map tiles, so they keep full brutalist contrast. */
 
@@ -121,6 +247,7 @@ button {
     height: 11px;
 }
 
+.pandal-marker.confidence-committee-confirmed { background: var(--confidence-committee); }
 .pandal-marker.confidence-high        { background: var(--confidence-high); }
 .pandal-marker.confidence-medium      { background: var(--confidence-medium); }
 .pandal-marker.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
@@ -839,6 +966,7 @@ button {
     flex-shrink: 0;
 }
 
+.status-badge.confidence-committee-confirmed { background: var(--confidence-committee); }
 .status-badge.confidence-high        { background: var(--confidence-high); }
 .status-badge.confidence-medium      { background: var(--confidence-medium); }
 .status-badge.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
@@ -1107,6 +1235,7 @@ button {
     border: 1.5px solid var(--line);
 }
 
+.list-row-dot.confidence-committee-confirmed { background: var(--confidence-committee); }
 .list-row-dot.confidence-high        { background: var(--confidence-high); }
 .list-row-dot.confidence-medium      { background: var(--confidence-medium); }
 .list-row-dot.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
