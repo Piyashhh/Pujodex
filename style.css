@@ -20,11 +20,15 @@
 
     /* Location confidence — a separate semantic palette, deliberately
        distinct from the brand colours above so confidence always
-       reads as data, never as a brand action. Committee-confirmed
-       gets its own violet rather than reusing indigo/marigold —
-       those are brand colours, and this palette stays clear of them
-       on purpose. */
-    --confidence-committee:   #6a3ea1;
+       reads as data, never as a brand action. Committee-confirmed is
+       a deliberately different, deeper blue than Medium's — same
+       family, but far enough apart that a top-tier pin and a
+       middle-tier pin don't read as the same colour at map-marker
+       size. Manually-checked reuses High's own green (see the
+       per-tier rules below) rather than getting a new variable, since
+       the two are meant to look identical — differentiated by label,
+       not colour. */
+    --confidence-committee:   #1a4fa0;
     --confidence-high:        #1f8a4c;
     --confidence-medium:      #2f6fe4;
     --confidence-unconfirmed: #b8790a;
@@ -154,6 +158,14 @@ button {
     animation: locate-pulse 1s ease-in-out infinite;
 }
 
+/* Tracking is live — filled with the same blue as the on-map dot,
+   so the button and the marker read as one connected piece of UI. */
+#locate-button.active {
+    background: var(--confidence-medium);
+    border-color: var(--confidence-medium);
+    color: white;
+}
+
 #locate-button.locate-error {
     border-color: var(--vermillion);
     color: var(--vermillion);
@@ -220,6 +232,164 @@ button {
     fill-opacity: 0.08;
 }
 
+
+/* ================================
+   CUSTOM ALERT — replaces the browser's native alert(). Quiet by
+   design (paper-flat, hairline border, soft shadow): boldness stays
+   reserved for the three loud elements in Design.md, and a system
+   message doesn't need to compete with them for attention — it just
+   needs to be readable and get out of the way.
+================================ */
+
+#app-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 90px;
+    z-index: 2000;
+
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    max-width: min(90vw, 380px);
+    padding: 13px 16px;
+
+    border: var(--border-soft);
+    border-radius: 6px;
+
+    background: var(--paper-flat);
+    box-shadow: var(--shadow-soft);
+
+    opacity: 0;
+    transform: translate(-50%, 10px);
+    pointer-events: none;
+
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+#app-toast.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.app-toast-icon {
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+    color: var(--vermillion);
+}
+
+.app-toast-message {
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--ink);
+}
+
+
+/* ================================
+   CUSTOM CONFIRM — replaces the browser's native confirm(), used
+   for gating destructive actions like clearing the whole plan.
+   Unlike the toast above, this blocks interaction with a backdrop —
+   it's asking for a decision, not just delivering information.
+================================ */
+
+#app-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 20px;
+
+    background: rgba(20, 18, 15, 0.5);
+
+    opacity: 0;
+    pointer-events: none;
+
+    transition: opacity 0.2s ease;
+}
+
+#app-confirm-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#app-confirm-dialog {
+    width: 100%;
+    max-width: 340px;
+
+    padding: 22px 20px 18px;
+
+    background: var(--paper-flat);
+    border: 1.5px solid var(--line);
+    border-radius: 3px;
+    box-shadow: var(--shadow-soft);
+
+    transform: scale(0.96) translateY(6px);
+    transition: transform 0.2s ease;
+}
+
+#app-confirm-overlay.visible #app-confirm-dialog {
+    transform: scale(1) translateY(0);
+}
+
+#app-confirm-message {
+    margin: 0 0 18px;
+
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--ink);
+}
+
+#app-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+#app-confirm-cancel,
+#app-confirm-ok {
+    padding: 9px 16px;
+
+    border: var(--border-soft);
+    border-radius: 3px;
+
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    font-weight: 600;
+
+    cursor: pointer;
+}
+
+#app-confirm-cancel {
+    background: var(--paper-flat);
+    color: var(--ink);
+}
+
+#app-confirm-cancel:hover {
+    border-color: var(--ink);
+}
+
+/* Styled as a warning by default — see the comment on showConfirm()
+   in app.js for why. */
+#app-confirm-ok {
+    background: var(--vermillion);
+    border-color: var(--vermillion);
+    color: white;
+}
+
+#app-confirm-ok:hover {
+    background: var(--vermillion-dark);
+    border-color: var(--vermillion-dark);
+}
+
 /* Markers are the one piece of "content" that has to compete with
    busy map tiles, so they keep full brutalist contrast. */
 
@@ -248,6 +418,7 @@ button {
 }
 
 .pandal-marker.confidence-committee-confirmed { background: var(--confidence-committee); }
+.pandal-marker.confidence-manually-checked    { background: var(--confidence-high); }
 .pandal-marker.confidence-high        { background: var(--confidence-high); }
 .pandal-marker.confidence-medium      { background: var(--confidence-medium); }
 .pandal-marker.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
@@ -948,9 +1119,11 @@ button {
 
     gap: 5px;
 
-    padding: 3px 8px;
+    padding: 3px 9px;
 
-    border-radius: 3px;
+    /* Pill on the card, circle on the map pin — same fill logic,
+       different container shape for each surface. */
+    border-radius: 9999px;
 
     font-family: var(--font-mono);
     font-size: 10px;
@@ -967,6 +1140,7 @@ button {
 }
 
 .status-badge.confidence-committee-confirmed { background: var(--confidence-committee); }
+.status-badge.confidence-manually-checked    { background: var(--confidence-high); }
 .status-badge.confidence-high        { background: var(--confidence-high); }
 .status-badge.confidence-medium      { background: var(--confidence-medium); }
 .status-badge.confidence-unconfirmed { background: var(--confidence-unconfirmed); }
@@ -1236,6 +1410,7 @@ button {
 }
 
 .list-row-dot.confidence-committee-confirmed { background: var(--confidence-committee); }
+.list-row-dot.confidence-manually-checked    { background: var(--confidence-high); }
 .list-row-dot.confidence-high        { background: var(--confidence-high); }
 .list-row-dot.confidence-medium      { background: var(--confidence-medium); }
 .list-row-dot.confidence-unconfirmed { background: var(--confidence-unconfirmed); }

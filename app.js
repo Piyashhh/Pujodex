@@ -1,5 +1,5 @@
 // ========================================
-// PUJO MAP — VERSION 0.8
+// PUJO MAP — VERSION 0.9
 //
 // Data source: Dataset_5_Cleaned.xlsx (23 columns, 403 pandals —
 // scope now spans Kolkata plus Howrah, Hooghly, North & South 24
@@ -9,34 +9,37 @@
 //
 // Location confidence drives both the map markers and the list
 // badges, ranked highest to lowest:
-//   committee-confirmed → shown on map, violet shield-check
-//   high                → shown on map, green check
+//   committee-confirmed → shown on map, deep-blue tick
+//   manually-checked    → shown on map, green tick (same green as
+//                          High, and the same tick — the two are
+//                          meant to look identical, told apart by
+//                          label only, not colour or icon)
+//   high                → shown on map, green tick
 //   medium              → shown on map, blue ≈
 //   unconfirmed         → list only, amber clock
 //   low                 → list only, vermillion warning triangle
 //   unlocated           → list only (no coordinates), grey "?"
 //
-// committee-confirmed comes from a `Committee Confirmed` column that
-// doesn't exist in the sheet yet (a committee confirming its own
-// listing outranks anything the Google-verification pipeline can
-// establish) — see normalizePandal() in section 6. Everything below
-// that reads from "Confidence" itself, which this dataset writes as
-// a descriptive phrase, not a bare word — e.g. "High
-// (Google-verified)", "Unconfirmed (single source)", "Needs manual
-// review" — so confidenceKey() matches on the LEADING word only.
-// "Needs manual review" always means no coordinates in this dataset,
-// so it falls through to "unlocated" without needing its own case.
+// committee-confirmed and manually-checked are both values written
+// directly into the "Confidence" column itself, alongside High/
+// Medium/Unconfirmed/etc — not separate Yes/blank columns, despite
+// an earlier version of this file assuming that. confidenceKey()
+// below handles all of it in one place; see its comment for exactly
+// which phrasing it matches, since the sheet's exact wording for
+// these two hasn't been confirmed yet.
 //
-// Only committee-confirmed/high/medium pandals become map markers —
-// the rest have either no coordinate or one we don't trust yet, and
-// plotting every row was the main source of the lag an earlier
-// version fixed.
+// Only committee-confirmed/manually-checked/high/medium pandals
+// become map markers — the rest have either no coordinate or one we
+// don't trust yet, and plotting every row was the main source of the
+// lag an earlier version fixed.
 //
-// v0.8: a tap-to-locate "you are here" marker (section 25); the
-// committee-confirmed tier above; and pandals with no Zone on file
-// now group under "Other Zone" (section 17's groupByZone) instead of
-// a separate "Other" bucket, which looked like two near-identical
-// catch-all categories in the list.
+// v0.9: added the manually-checked tier; recoloured committee-
+// confirmed from violet to a deep blue distinct from Medium's, and
+// swapped its icon from a shield to the same tick High already uses
+// (colour is now the only thing telling any of these three tiers
+// apart at marker size); and the card's status badge is now a full
+// pill (border-radius) rather than a slightly-rounded rectangle — the
+// map pin stays a circle, same as before.
 // ========================================
 
 
@@ -67,7 +70,11 @@ L.tileLayer(
 const CONFIDENCE_META = {
     "committee-confirmed": {
         label: "Committee-Confirmed",
-        icon: `<svg viewBox="0 0 16 16" fill="none"><path d="M8 1.4L13.2 3.3V7.4C13.2 10.7 11 13.1 8 14.4C5 13.1 2.8 10.7 2.8 7.4V3.3L8 1.4Z" stroke="white" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.6 8L7.2 9.6L10.4 6.1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+        icon: `<svg viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    },
+    "manually-checked": {
+        label: "Manually Checked",
+        icon: `<svg viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
     },
     high: {
         label: "High Confidence",
@@ -92,7 +99,7 @@ const CONFIDENCE_META = {
 };
 
 // Anything shown on the map at all comes from this list.
-const MAP_VISIBLE_CONFIDENCE = ["committee-confirmed", "high", "medium"];
+const MAP_VISIBLE_CONFIDENCE = ["committee-confirmed", "manually-checked", "high", "medium"];
 
 // Committee confirmation is a separate, stronger channel than the
 // Google-verification pipeline that fills in "Confidence" — so it's
@@ -101,16 +108,26 @@ const MAP_VISIBLE_CONFIDENCE = ["committee-confirmed", "high", "medium"];
 // normalizePandal() in section 6.
 function confidenceKey(raw) {
 
-    // Matches on the LEADING word, not an exact string — this dataset
-    // writes confidence as a phrase ("High (Google-verified)",
+    // Matches on the LEADING phrase, not an exact string — this
+    // dataset writes confidence as a phrase ("High (Google-verified)",
     // "Unconfirmed (single source)") rather than a bare label. Any
     // value that doesn't start with a recognized tier — including
     // "Needs manual review" — correctly falls through to "unlocated".
+    //
+    // Committee Confirmed and Manually Checked live INSIDE this same
+    // column, as values Piyash writes directly into "Confidence" —
+    // not a separate Yes/blank column, despite how normalizePandal()
+    // originally modeled this. Hyphen and space are treated the same
+    // ("Committee Confirmed" / "Committee-Confirmed" both match) since
+    // it's not yet confirmed which form the sheet actually uses.
     const value =
         String(raw || "")
             .trim()
-            .toLowerCase();
+            .toLowerCase()
+            .replace(/-/g, " ");
 
+    if (value.startsWith("committee confirmed")) return "committee-confirmed";
+    if (value.startsWith("manually checked")) return "manually-checked";
     if (value.startsWith("high")) return "high";
     if (value.startsWith("medium")) return "medium";
     if (value.startsWith("low")) return "low";
@@ -234,17 +251,6 @@ function normalizePandal(raw) {
     const club =
         String(raw["Name of the Club"] || "").trim();
 
-    // "Committee Confirmed" doesn't exist in the sheet yet — this
-    // reads it defensively (Yes/Y/true, case-insensitive) so it's a
-    // no-op until that column is added. When it IS set, it overrides
-    // whatever confidenceKey() derives from the Confidence column —
-    // a committee confirming its own details outranks anything the
-    // Google-verification pipeline can establish.
-    const committeeConfirmed =
-        /^(yes|y|true)$/i.test(
-            String(raw["Committee Confirmed"] || "").trim()
-        );
-
     return {
         id: String(raw["Puja ID"] || "").trim(),
         name,
@@ -256,10 +262,9 @@ function normalizePandal(raw) {
         lat: hasCoords ? lat : null,
         lng: hasCoords ? lng : null,
         hasCoords,
-        confidence:
-            committeeConfirmed
-                ? "committee-confirmed"
-                : confidenceKey(raw["Confidence"])
+        // Committee-Confirmed and Manually-Checked both live inside
+        // this one column's values now — see confidenceKey().
+        confidence: confidenceKey(raw["Confidence"])
     };
 }
 
@@ -952,7 +957,7 @@ document.getElementById(
     "clear-plan"
 ).addEventListener(
     "click",
-    () => {
+    async () => {
 
         if (plan.length === 0) {
             return;
@@ -960,8 +965,9 @@ document.getElementById(
 
 
         const confirmed =
-            confirm(
-                "Clear your entire Pujo plan?"
+            await showConfirm(
+                "Clear your entire Pujo plan?",
+                "Clear Plan"
             );
 
 
@@ -1620,7 +1626,7 @@ async function showRoute() {
 
     if (plan.length < 2) {
 
-        alert(
+        showAlert(
             "Add at least 2 pandals to create a route."
         );
 
@@ -1694,7 +1700,7 @@ async function showRoute() {
 
         console.error(error);
 
-        alert(
+        showAlert(
             "Couldn't calculate the route. Try again."
         );
 
@@ -1836,10 +1842,169 @@ function clearRoute() {
 }
 
 // ----------------------------------------
-// 25. USER LOCATION
-// Tap-to-locate, not automatic on load — this only ever runs after
-// the visitor taps the button, so a permission prompt never fires
-// unprompted and a denial never blocks anything else in the app.
+// 25. CUSTOM ALERT
+// A small on-brand toast instead of the browser's native alert() —
+// non-blocking, auto-dismissing, styled like the rest of the app.
+// Deliberately quiet (paper-flat, hairline border, soft shadow), not
+// brutalist — boldness stays reserved for the three loud elements
+// documented in Design.md, and a system message popping in with
+// full bold treatment would compete with them for no reason.
+// ----------------------------------------
+
+let alertDismissTimer = null;
+
+function showAlert(message) {
+
+    let toast =
+        document.getElementById("app-toast");
+
+    if (!toast) {
+
+        toast =
+            document.createElement("div");
+
+        toast.id = "app-toast";
+
+        toast.innerHTML = `
+            <svg viewBox="0 0 16 16" fill="none" class="app-toast-icon">
+                <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/>
+                <line x1="8" y1="5" x2="8" y2="8.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <circle cx="8" cy="11" r="0.9" fill="currentColor"/>
+            </svg>
+            <span class="app-toast-message"></span>
+        `;
+
+        document.body.appendChild(toast);
+    }
+
+
+    toast.querySelector(".app-toast-message").textContent =
+        message;
+
+
+    clearTimeout(alertDismissTimer);
+
+    // Two rAFs, not one: the element needs a layout tick in its
+    // pre-transition state before adding the class that transitions
+    // it, or the browser can coalesce both changes into one frame
+    // and skip the animation — most noticeable on repeat alerts.
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            toast.classList.add("visible");
+        });
+    });
+
+
+    alertDismissTimer = setTimeout(
+        () => {
+            toast.classList.remove("visible");
+        },
+        4000
+    );
+}
+
+
+// A blocking modal, unlike the toast above — this gates an action
+// rather than just informing, so it needs an actual decision before
+// anything continues. Returns a Promise<boolean> so call sites read
+// as `if (await showConfirm(...))`, mirroring the native confirm()
+// it replaces. Styled as a warning by default: every confirm in this
+// app so far gates a destructive, hard-to-undo action, so a
+// vermillion "confirm" button is the sensible default here, not a
+// neutral one.
+function showConfirm(message, confirmLabel = "Confirm") {
+
+    return new Promise(resolve => {
+
+        const overlay =
+            document.createElement("div");
+
+        overlay.id = "app-confirm-overlay";
+
+        overlay.innerHTML = `
+            <div id="app-confirm-dialog" role="alertdialog" aria-modal="true">
+                <p id="app-confirm-message"></p>
+                <div id="app-confirm-actions">
+                    <button id="app-confirm-cancel" type="button">Cancel</button>
+                    <button id="app-confirm-ok" type="button"></button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        overlay.querySelector("#app-confirm-message").textContent =
+            message;
+
+        overlay.querySelector("#app-confirm-ok").textContent =
+            confirmLabel;
+
+
+        const finish = result => {
+
+            overlay.classList.remove("visible");
+
+            document.removeEventListener(
+                "keydown",
+                onKeydown
+            );
+
+            setTimeout(
+                () => overlay.remove(),
+                200
+            );
+
+            resolve(result);
+        };
+
+        const onKeydown = event => {
+
+            if (event.key === "Escape") {
+                finish(false);
+            }
+        };
+
+
+        overlay.addEventListener(
+            "click",
+            event => {
+                if (event.target === overlay) {
+                    finish(false);
+                }
+            }
+        );
+
+        overlay
+            .querySelector("#app-confirm-cancel")
+            .addEventListener("click", () => finish(false));
+
+        overlay
+            .querySelector("#app-confirm-ok")
+            .addEventListener("click", () => finish(true));
+
+        document.addEventListener(
+            "keydown",
+            onKeydown
+        );
+
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                overlay.classList.add("visible");
+            });
+        });
+    });
+}
+
+
+// ----------------------------------------
+// 26. USER LOCATION
+// The button toggles a LIVE navigator.geolocation.watchPosition()
+// feed, not a one-off snapshot — the dot tracks the visitor as they
+// walk between pandals, matching what "showing where the user is"
+// actually needs while pandal-hopping. Still fully opt-in: nothing
+// runs until the button is tapped, so a permission prompt never
+// fires unprompted, and a denial never blocks anything else here.
 // ----------------------------------------
 
 const locateButton =
@@ -1847,19 +2012,28 @@ const locateButton =
 
 let userLocationMarker = null;
 let userAccuracyCircle = null;
+let locationWatchId = null;
+let hasCenteredOnUser = false;
 
 
 locateButton.addEventListener(
     "click",
-    locateUser
+    () => {
+
+        if (locationWatchId !== null) {
+            stopWatchingLocation();
+        } else {
+            startWatchingLocation();
+        }
+    }
 );
 
 
-function locateUser() {
+function startWatchingLocation() {
 
     if (!("geolocation" in navigator)) {
 
-        alert(
+        showAlert(
             "Location isn't available in this browser."
         );
 
@@ -1870,34 +2044,72 @@ function locateUser() {
     locateButton.classList.add("locating");
     locateButton.classList.remove("locate-error");
 
+    hasCenteredOnUser = false;
 
-    navigator.geolocation.getCurrentPosition(
 
-        position => {
+    locationWatchId =
+        navigator.geolocation.watchPosition(
 
-            locateButton.classList.remove("locating");
+            position => {
 
-            showUserLocation(
-                position.coords.latitude,
-                position.coords.longitude,
-                position.coords.accuracy
-            );
-        },
+                locateButton.classList.remove("locating");
+                locateButton.classList.add("active");
 
-        error => {
+                locateButton.setAttribute(
+                    "aria-pressed",
+                    "true"
+                );
 
-            locateButton.classList.remove("locating");
-            locateButton.classList.add("locate-error");
+                showUserLocation(
+                    position.coords.latitude,
+                    position.coords.longitude,
+                    position.coords.accuracy
+                );
+            },
 
-            handleLocationError(error);
-        },
+            error => {
 
-        {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 60000
-        }
+                locateButton.classList.add("locate-error");
+
+                stopWatchingLocation();
+
+                handleLocationError(error);
+            },
+
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 5000
+            }
+        );
+}
+
+
+function stopWatchingLocation() {
+
+    if (locationWatchId !== null) {
+        navigator.geolocation.clearWatch(locationWatchId);
+        locationWatchId = null;
+    }
+
+
+    locateButton.classList.remove("locating", "active");
+
+    locateButton.setAttribute(
+        "aria-pressed",
+        "false"
     );
+
+
+    if (userLocationMarker) {
+        map.removeLayer(userLocationMarker);
+        userLocationMarker = null;
+    }
+
+    if (userAccuracyCircle) {
+        map.removeLayer(userAccuracyCircle);
+        userAccuracyCircle = null;
+    }
 }
 
 
@@ -1942,10 +2154,18 @@ function showUserLocation(lat, lng, accuracy) {
     }
 
 
-    map.setView(
-        [lat, lng],
-        Math.max(map.getZoom(), 15)
-    );
+    // Centers once, on the first fix only — after that the visitor
+    // can pan freely without the map snapping back to them on every
+    // later update, while the dot itself keeps tracking live.
+    if (!hasCenteredOnUser) {
+
+        hasCenteredOnUser = true;
+
+        map.setView(
+            [lat, lng],
+            Math.max(map.getZoom(), 15)
+        );
+    }
 }
 
 
@@ -1965,12 +2185,12 @@ function handleLocationError(error) {
             "Location request timed out. Try again.";
     }
 
-    alert(message);
+    showAlert(message);
 }
 
 
 // ----------------------------------------
-// 26. START
+// 27. START
 // ----------------------------------------
 
 loadSavedPlan();
