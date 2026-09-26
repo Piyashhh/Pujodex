@@ -1060,6 +1060,8 @@ function setViewMode(mode) {
 
     viewMode = mode;
 
+    document.body.dataset.view = mode;
+
     mapElement.style.display =
         mode === "map" ? "block" : "none";
 
@@ -1115,6 +1117,9 @@ function setViewMode(mode) {
 
     if (mode === "list") {
 
+        // Never reopen the directory at an old scroll position.
+        listPanel.scrollTop = 0;
+
         renderListView(currentDirectoryResults());
 
     } else if (mode === "map") {
@@ -1166,28 +1171,36 @@ function renderListView(data) {
         document.createDocumentFragment();
 
 
-    groupByZone(data).forEach(group => {
-
-        const header =
-            document.createElement("div");
-
-        header.className = "list-zone-header";
-
+    // When a zone is selected, the chip already tells the user the
+    // current context. A second full-width zone bar would just repeat it.
+    if (selectedZone !== "all") {
+        const header = document.createElement("div");
+        header.className = "list-context-header";
         header.innerHTML = `
-            <span>${escapeHTML(group.zone)}</span>
-            <span class="list-zone-count">${group.items.length}</span>
+            <span>${escapeHTML(selectedZone)}</span>
+            <span class="list-zone-count">${data.length} ${data.length === 1 ? "pandal" : "pandals"}</span>
         `;
-
         fragment.appendChild(header);
 
+        data
+            .slice()
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach(pandal => fragment.appendChild(createListRow(pandal)));
+    } else {
+        groupByZone(data).forEach(group => {
+            const header = document.createElement("div");
+            header.className = "list-zone-header";
+            header.innerHTML = `
+                <span>${escapeHTML(group.zone)}</span>
+                <span class="list-zone-count">${group.items.length}</span>
+            `;
+            fragment.appendChild(header);
 
-        group.items.forEach(pandal => {
-            fragment.appendChild(
-                createListRow(pandal)
-            );
+            group.items.forEach(pandal => {
+                fragment.appendChild(createListRow(pandal));
+            });
         });
-
-    });
+    }
 
 
     listRows.appendChild(fragment);
@@ -1302,6 +1315,10 @@ function populateZoneStrip() {
 
                 updateZoneStripActiveState();
 
+                // Start the newly filtered directory at the top so the
+                // strip remains directly below the search bar.
+                listPanel.scrollTop = 0;
+
                 renderListView(
                     currentDirectoryResults()
                 );
@@ -1374,11 +1391,19 @@ function createListRow(pandal) {
         CONFIDENCE_META[pandal.confidence] ||
         CONFIDENCE_META.unlocated;
 
-    const subtitle =
-        pandal.city &&
-        pandal.city.toLowerCase() !== pandal.zone.toLowerCase()
-            ? pandal.city
-            : "";
+    const placeParts = [];
+
+    if (pandal.zone) {
+        placeParts.push(pandal.zone);
+    } else if (pandal.city) {
+        placeParts.push(pandal.city);
+    }
+
+    if (pandal.landmark) {
+        placeParts.push(`Near ${pandal.landmark}`);
+    }
+
+    const subtitle = placeParts.join(" · ");
 
     const row =
         document.createElement("div");
@@ -1390,7 +1415,9 @@ function createListRow(pandal) {
     row.innerHTML = `
         <button class="list-row-summary" type="button">
 
-            <span class="list-row-dot confidence-${pandal.confidence}" title="${escapeAttribute(meta.label)}"></span>
+            <span class="list-row-status confidence-${pandal.confidence}" title="${escapeAttribute(meta.label)}" aria-label="${escapeAttribute(meta.label)}">
+                ${meta.icon}
+            </span>
 
             <span class="list-row-text">
                 <span class="list-row-name">${escapeHTML(pandal.name)}</span>

@@ -1705,3 +1705,231 @@ button {
         max-height: 70vh;
     }
 }
+
+/* ================================================================
+   DIRECTORY REDESIGN — v1
+   Keeps the existing Pujodex language (paper, halftone, vermillion,
+   heavy type, geometric borders) but removes the competing layers
+   from the directory view.
+================================================================ */
+
+/* Directory has its own hierarchy: search first, filters second,
+   content third. The map/list toggle is redundant once Directory is
+   already selected in the dock. */
+body[data-view="list"] .brand,
+body[data-view="list"] #list-toggle {
+    display: none;
+}
+
+body[data-view="list"] .topbar {
+    gap: 10px;
+}
+
+body[data-view="list"] #search {
+    min-height: 42px;
+    padding-left: 14px;
+    font-size: 14px;
+}
+
+body[data-view="list"] #plan-button {
+    min-height: 42px;
+    padding: 9px 11px;
+}
+
+body[data-view="list"] #plan-button .plan-label {
+    font-size: 0;
+}
+
+body[data-view="list"] #plan-button .plan-label::after {
+    content: "Plan";
+    font-size: 13px;
+}
+
+/* The filters are now a quiet horizontal selector rather than a
+   second heavy navigation bar. */
+body[data-view="list"] #zone-strip {
+    gap: 7px;
+    padding: 9px 15px;
+    top: 0;
+    background: var(--paper);
+    border-bottom: 0;
+}
+
+body[data-view="list"] .zone-chip {
+    padding: 7px 13px;
+    border: 1.5px solid var(--hairline);
+    background: var(--paper-flat);
+    font-size: 12px;
+}
+
+body[data-view="list"] .zone-chip.active {
+    background: var(--vermillion);
+    border-color: var(--line);
+    color: white;
+    box-shadow: 2px 2px 0 var(--line);
+}
+
+/* A selected zone already has a chip. Give it one quiet context row
+   instead of repeating the same zone as a large patterned banner. */
+body[data-view="list"] .list-context-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 2px 15px 0;
+    padding: 13px 0 9px;
+    border-bottom: 2px solid var(--line);
+    font-family: var(--font-head);
+    font-size: 18px;
+    letter-spacing: -0.01em;
+}
+
+body[data-view="list"] .list-context-header .list-zone-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    opacity: 0.58;
+}
+
+/* When browsing all zones, retain the useful grouping but make it a
+   small label rather than another full-width textured component. */
+body[data-view="list"] .list-zone-header {
+    padding: 13px 15px 7px;
+    margin-top: 4px;
+    background: transparent;
+    background-image: none;
+    border: 0;
+    border-bottom: 2px solid var(--line);
+    font-family: var(--font-head);
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    text-transform: none;
+    opacity: 1;
+}
+
+body[data-view="list"] .list-zone-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    opacity: 0.58;
+}
+
+/* Rows carry the information. Less vertical padding, more useful
+   second-line context, and a proper semantic confidence badge. */
+body[data-view="list"] .list-row {
+    background: var(--paper-flat);
+    border-bottom: 1px solid var(--hairline);
+}
+
+body[data-view="list"] .list-row-summary {
+    gap: 11px;
+    padding: 13px 15px;
+}
+
+body[data-view="list"] .list-row-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    border: 2px solid var(--line);
+    border-radius: 50%;
+    color: white;
+    box-shadow: 1.5px 1.5px 0 var(--line);
+}
+
+body[data-view="list"] .list-row-status svg {
+    width: 14px;
+    height: 14px;
+}
+
+body[data-view="list"] .list-row-status.confidence-committee-confirmed { background: var(--confidence-committee); }
+body[data-view="list"] .list-row-status.confidence-manually-checked    { background: var(--confidence-high); }
+body[data-view="list"] .list-row-status.confidence-high                { background: var(--confidence-high); }
+body[data-view="list"] .list-row-status.confidence-medium              { background: var(--confidence-medium); }
+body[data-view="list"] .list-row-status.confidence-unconfirmed         { background: var(--confidence-unconfirmed); }
+body[data-view="list"] .list-row-status.confidence-low                 { background: var(--confidence-low); }
+body[data-view="list"] .list-row-status.confidence-unlocated           { background: var(--confidence-unlocated); }
+
+body[data-view="list"] .list-row-text {
+    gap: 2px;
+}
+
+body[data-view="list"] .list-row-name {
+    font-size: 14px;
+    line-height: 1.25;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+body[data-view="list"] .list-row-sub {
+    margin-top: 1px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    line-height: 1.35;
+    font-weight: 500;
+    opacity: 0.58;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body[data-view="list"] .list-row-chevron {
+    font-size: 21px;
+    line-height: 1;
+    opacity: 0.45;
+}
+
+body[data-view="list"] .list-row-detail {
+    padding: 0 15px;
+}
+
+/* Don't let the expanded card reintroduce a second visual language. */
+body[data-view="list"] .list-row-detail .pandal-card {
+    padding-bottom: 16px;
+}
+
+/* Give the directory a clean landing position beneath the fixed topbar. */
+body[data-view="list"] #list-panel {
+    /* Start the scroll container below the fixed topbar. The filter
+       strip is then the first thing in the directory and can stick to
+       this top edge without ever getting trapped below list content. */
+    top: var(--topbar-clearance);
+    padding-top: 0;
+}
+
+@media (max-width: 600px) {
+    body[data-view="list"] .topbar {
+        top: 10px;
+        width: calc(100% - 20px);
+        padding: 8px;
+    }
+
+    body[data-view="list"] #plan-button {
+        min-width: 62px;
+        padding: 9px 9px;
+    }
+
+    body[data-view="list"] #search {
+        min-width: 0;
+    }
+
+    body[data-view="list"] #zone-strip {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+
+    body[data-view="list"] .list-context-header,
+    body[data-view="list"] .list-zone-header {
+        margin-left: 15px;
+        margin-right: 15px;
+    }
+
+    body[data-view="list"] .list-row-summary {
+        padding-top: 12px;
+        padding-bottom: 12px;
+    }
+}
