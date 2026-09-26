@@ -18,6 +18,12 @@
     --line:       #14120f;
     --hairline:   rgba(20, 18, 15, 0.16);
 
+    /* Fallback only, for the instant before JS measures the dock's
+       actual rendered height (syncDockHeight() in app.js) and
+       overwrites this. Kept close to the real value so there's no
+       visible jump if JS is briefly delayed. */
+    --dock-height: 64px;
+
     /* Location confidence — a separate semantic palette, deliberately
        distinct from the brand colours above so confidence always
        reads as data, never as a brand action. Committee-confirmed is
@@ -94,9 +100,11 @@ button {
 
 #map {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: var(--dock-height);
     width: 100%;
-    height: 100vh;
     z-index: 1;
     background: var(--paper);
 }
@@ -114,7 +122,7 @@ button {
 .map-controls {
     position: fixed;
     right: 15px;
-    bottom: max(20px, env(safe-area-inset-bottom));
+    bottom: calc(var(--dock-height) + 15px);
 
     z-index: 500;
 
@@ -244,7 +252,7 @@ button {
 #app-toast {
     position: fixed;
     left: 50%;
-    bottom: 90px;
+    bottom: calc(var(--dock-height) + 80px);
     z-index: 2000;
 
     display: flex;
@@ -1335,7 +1343,10 @@ button {
 
 #list-panel {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: var(--dock-height);
 
     z-index: 1;
 
@@ -1346,6 +1357,59 @@ button {
     overflow-y: auto;
 
     background: var(--paper);
+}
+
+/* One sticky bar, not something rebuilt on every filter change —
+   only its .active chip toggles (see updateZoneStripActiveState()
+   in app.js), so selecting a zone never resets this strip's own
+   horizontal scroll position back to the start. */
+#zone-strip {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+
+    display: flex;
+    gap: 8px;
+
+    padding: 10px min(15%, 60px);
+
+    overflow-x: auto;
+
+    background: var(--paper);
+    border-bottom: 1.5px solid var(--hairline);
+}
+
+.zone-chip {
+    flex-shrink: 0;
+
+    padding: 7px 14px;
+
+    border: var(--border-soft);
+    border-radius: 999px;
+
+    background: var(--paper-flat);
+    color: var(--ink);
+
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+
+    cursor: pointer;
+
+    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.zone-chip:hover {
+    border-color: var(--ink);
+}
+
+/* Same accent as the dock's active tab — one consistent colour for
+   "this is the thing currently selected," app-wide. */
+.zone-chip.active {
+    background: var(--vermillion);
+    border-color: var(--vermillion);
+    color: white;
 }
 
 .list-zone-header {
@@ -1486,6 +1550,115 @@ button {
 
 
 /* ================================
+   NAV DOCK — persistent bottom navigation, visible in every view.
+   Unlike .map-controls (map-only, shown/hidden by setViewMode()),
+   this one is never toggled — it's the one piece of chrome meant to
+   always be there. --dock-height is measured from this element's
+   actual rendered size (syncDockHeight() in app.js) and everything
+   else that needs to clear the dock (the map, the list, the locate
+   button, the toast, the mobile plan panel) reads that variable
+   rather than a hand-guessed number, so none of them can quietly
+   drift out of sync with the dock's real height the way #map's
+   missing display rule did before.
+================================ */
+
+#nav-dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1500;
+
+    display: flex;
+
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+
+    background-color: var(--paper-flat);
+
+    border-top: 1.5px solid var(--hairline);
+    box-shadow: 0 -2px 10px rgba(20, 18, 15, 0.08);
+}
+
+.dock-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+
+    flex: 1;
+    padding: 6px 4px;
+
+    border: none;
+    background: none;
+
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 600;
+
+    color: var(--ink);
+    opacity: 0.75;
+
+    cursor: pointer;
+
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.dock-button svg {
+    width: 23px;
+    height: 23px;
+}
+
+.dock-button.active {
+    color: var(--vermillion);
+    opacity: 1;
+}
+
+
+/* ================================
+   EXPLORE VIEW — placeholder for now. Same structural pattern as
+   #map/#list-panel (a full view swapped in by setViewMode(), bounded
+   above the dock) so it slots into the same system rather than
+   needing special-casing anywhere.
+================================ */
+
+#explore-view {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: var(--dock-height);
+
+    z-index: 1;
+
+    display: none;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0 30px;
+
+    background: var(--paper);
+}
+
+.explore-placeholder {
+    max-width: 320px;
+    text-align: center;
+}
+
+.explore-placeholder h2 {
+    margin: 0 0 8px;
+}
+
+.explore-placeholder p {
+    margin: 0;
+
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink);
+    opacity: 0.6;
+}
+
+
+/* ================================
    MOBILE
 ================================ */
 
@@ -1523,7 +1696,7 @@ button {
     #plan-panel {
         top: auto;
         right: 10px;
-        bottom: 10px;
+        bottom: calc(var(--dock-height) + 10px);
         left: 10px;
 
         width: auto;

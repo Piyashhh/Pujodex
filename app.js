@@ -178,7 +178,7 @@ let routeLayer = null;
 
 let draggedPlanIndex = null;
 
-let viewMode = "map";    // "map" | "list"
+let viewMode = "map";    // "map" | "list" | "explore"
 
 
 // ----------------------------------------
@@ -320,6 +320,8 @@ async function loadPandals() {
 
 
         displayPandals(pandals);
+
+        populateZoneStrip();
 
         updatePlanUI();
 
@@ -870,7 +872,7 @@ function focusPandal(pandal) {
         return;
     }
 
-    if (viewMode === "list") {
+    if (viewMode !== "map") {
         setViewMode("map");
     }
 
@@ -1012,10 +1014,11 @@ document.getElementById(
 
 
 // ----------------------------------------
-// 16. VIEW TOGGLE — MAP / LIST
+// 16. VIEW TOGGLE — MAP / LIST / EXPLORE
 // The list exists specifically so the ~300 pandals without a
 // trustworthy pin are still browsable, without ever putting that
-// many markers (or a scrollable list) on top of a live map.
+// many markers (or a scrollable list) on top of a live map. Explore
+// is a placeholder for now (section 27's nav dock links to it).
 // ----------------------------------------
 
 const listToggle =
@@ -1024,11 +1027,23 @@ const listToggle =
 const listPanel =
     document.getElementById("list-panel");
 
+const listRows =
+    document.getElementById("list-rows");
+
+const zoneStrip =
+    document.getElementById("zone-strip");
+
 const mapElement =
     document.getElementById("map");
 
 const mapControls =
     document.querySelector(".map-controls");
+
+const exploreView =
+    document.getElementById("explore-view");
+
+const dockButtons =
+    document.querySelectorAll(".dock-button");
 
 
 listToggle.addEventListener(
@@ -1045,32 +1060,39 @@ function setViewMode(mode) {
 
     viewMode = mode;
 
-    const isList =
-        mode === "list";
-
-
     mapElement.style.display =
-        isList ? "none" : "block";
+        mode === "map" ? "block" : "none";
 
     mapControls.style.display =
-        isList ? "none" : "flex";
+        mode === "map" ? "flex" : "none";
 
     listPanel.style.display =
-        isList ? "block" : "none";
+        mode === "list" ? "block" : "none";
+
+    exploreView.style.display =
+        mode === "explore" ? "flex" : "none";
 
     listToggle.classList.toggle(
         "active",
-        isList
+        mode === "list"
     );
 
     listToggle.setAttribute(
         "aria-pressed",
-        String(isList)
+        String(mode === "list")
     );
+
+    dockButtons.forEach(button => {
+        button.classList.toggle(
+            "active",
+            button.dataset.view === mode
+        );
+    });
 
 
     // Switching modes resets search — carrying a filter silently
     // across two very different views was more confusing than useful.
+    // Applies to the zone strip too now.
     searchInput.value = "";
 
     clearButton.style.display =
@@ -1079,14 +1101,23 @@ function setViewMode(mode) {
     searchResults.style.display =
         "none";
 
+    selectedZone = "all";
 
-    if (isList) {
+    updateZoneStripActiveState();
 
-        showAllMarkers();
+    // Unconditional now, not just on the way into list mode: the
+    // dock lets you jump straight between any of the three views,
+    // not just toggle map<->list, so a marker filter left over from
+    // search could otherwise survive a detour through Explore and
+    // reappear stale when you come back to the map.
+    showAllMarkers();
 
-        renderListView(pandals);
 
-    } else {
+    if (mode === "list") {
+
+        renderListView(currentDirectoryResults());
+
+    } else if (mode === "map") {
 
         setTimeout(() => {
             map.invalidateSize();
@@ -1116,12 +1147,12 @@ function renderListView(data) {
 
     lastListData = data;
 
-    listPanel.innerHTML = "";
+    listRows.innerHTML = "";
 
 
     if (data.length === 0) {
 
-        listPanel.innerHTML = `
+        listRows.innerHTML = `
             <div class="list-empty">
                 No pujas found.
             </div>
@@ -1159,7 +1190,7 @@ function renderListView(data) {
     });
 
 
-    listPanel.appendChild(fragment);
+    listRows.appendChild(fragment);
 }
 
 // Zones sorted alphabetically; pandals with no zone on file are
@@ -1201,6 +1232,137 @@ function groupByZone(data) {
                 (a, b) => a.name.localeCompare(b.name)
             )
     }));
+}
+
+
+// Which zone the Directory is currently filtered to — "all" or a
+// real zone name. Reset to "all" on every setViewMode() call
+// (section 16), same as search.
+let selectedZone = "all";
+
+
+// Persistent horizontal strip below the search bar, built once real
+// data loads (see populateZoneStrip()'s call site in loadPandals(),
+// section 7) and never rebuilt afterward — only its active chip
+// changes, so re-filtering never disturbs its scroll position.
+function populateZoneStrip() {
+
+    const counts =
+        new Map();
+
+    pandals.forEach(pandal => {
+
+        const zone =
+            pandal.zone || "Other Zone";
+
+        counts.set(
+            zone,
+            (counts.get(zone) || 0) + 1
+        );
+    });
+
+
+    // Same sort as groupByZone() above — "Other Zone" always last —
+    // so the strip's order matches the order zones actually appear
+    // in the list underneath it.
+    const zoneNames =
+        [...counts.keys()].sort((a, b) => {
+
+            if (a === "Other Zone") return 1;
+            if (b === "Other Zone") return -1;
+
+            return a.localeCompare(b);
+        });
+
+
+    const allChip =
+        `<button class="zone-chip" data-zone="all">All</button>`;
+
+    const zoneChips =
+        zoneNames
+            .map(zone => `
+                <button class="zone-chip" data-zone="${escapeHTML(zone)}">
+                    ${escapeHTML(zone)} (${counts.get(zone)})
+                </button>
+            `)
+            .join("");
+
+    zoneStrip.innerHTML =
+        allChip + zoneChips;
+
+
+    zoneStrip
+        .querySelectorAll(".zone-chip")
+        .forEach(chip => {
+
+            chip.addEventListener("click", () => {
+
+                selectedZone =
+                    chip.dataset.zone;
+
+                updateZoneStripActiveState();
+
+                renderListView(
+                    currentDirectoryResults()
+                );
+            });
+        });
+
+
+    updateZoneStripActiveState();
+}
+
+
+// Only toggles the .active class — never rebuilds the strip's
+// innerHTML — so selecting a zone can't reset the strip's own
+// horizontal scroll position.
+function updateZoneStripActiveState() {
+
+    zoneStrip
+        .querySelectorAll(".zone-chip")
+        .forEach(chip => {
+
+            chip.classList.toggle(
+                "active",
+                chip.dataset.zone === selectedZone
+            );
+        });
+}
+
+
+// The one place the zone strip and the search box meet — every
+// control that can change the Directory's contents calls this,
+// never pandals/filterPandals directly, so the two filters can never
+// silently fight each other.
+function currentDirectoryResults() {
+
+    const query =
+        searchInput.value.trim().toLowerCase();
+
+
+    return pandals.filter(pandal => {
+
+        if (
+            selectedZone !== "all" &&
+            (pandal.zone || "Other Zone") !== selectedZone
+        ) {
+            return false;
+        }
+
+        if (query) {
+
+            const matches =
+                pandal.name.toLowerCase().includes(query) ||
+                pandal.address.toLowerCase().includes(query) ||
+                pandal.zone.toLowerCase().includes(query);
+
+            if (!matches) {
+                return false;
+            }
+        }
+
+        return true;
+    });
 }
 
 // Builds one collapsed row, wired up to expand into the shared
@@ -1357,24 +1519,40 @@ function handleSearch() {
             .toLowerCase();
 
 
+    // Explore: typing means "find something specific," not "look at
+    // the placeholder" — switch to map mode first. setViewMode()
+    // clears the input as part of its own reset, so restore what was
+    // actually typed before falling through to the map-mode logic
+    // below.
+    if (viewMode === "explore" && query) {
+
+        setViewMode("map");
+
+        searchInput.value =
+            query;
+    }
+
+
     clearButton.style.display =
         query
             ? "block"
             : "none";
 
 
-    // List mode: the search bar filters the list in place.
+    // List mode: the search bar filters the list in place, composed
+    // with whatever zone is selected in the strip.
     if (viewMode === "list") {
 
         renderListView(
-            query ? filterPandals(query) : pandals
+            currentDirectoryResults()
         );
 
         return;
     }
 
 
-    // Map mode: existing dropdown + marker-filter behaviour.
+    // Map mode (Explore redirects here too, above): existing dropdown
+    // + marker-filter behaviour.
     if (!query) {
 
         searchResults.style.display =
@@ -1555,7 +1733,9 @@ clearButton.addEventListener(
 
         if (viewMode === "list") {
 
-            renderListView(pandals);
+            renderListView(
+                currentDirectoryResults()
+            );
 
         } else {
 
@@ -2005,6 +2185,34 @@ function showConfirm(message, confirmLabel = "Confirm") {
 // actually needs while pandal-hopping. Still fully opt-in: nothing
 // runs until the button is tapped, so a permission prompt never
 // fires unprompted, and a denial never blocks anything else here.
+//
+// Position comes from navigator.geolocation itself — the device's
+// GPS/WiFi/cell positioning, unrelated to OSM (which only supplies
+// map tiles here, never location). No change needed there; it was
+// already right.
+//
+// Every update is filtered through two checks before it touches the
+// map: LOCATION_MIN_DISTANCE_METERS (skip if the new fix isn't at
+// least 10m from the last one actually applied) and
+// LOCATION_MIN_INTERVAL_MS (skip if it's been under 5s since the
+// last one, UNLESS the distance check alone says it moved anyway —
+// a car or a fast bike shouldn't have to wait out the throttle).
+// Kolkata's dense blocks mean real GPS multipath/reflection noise,
+// especially standing still near buildings — without this, the dot
+// would visibly jitter a few metres in every direction despite the
+// visitor not moving at all. maximumAge stays at 5000 too: that's a
+// separate, complementary thing — a hint to the OS positioning
+// hardware itself that it can skip an actual GPS poll and hand back
+// a recent cached fix, which is a real battery saving these two JS-
+// side checks can't get on their own (discarding a callback in JS
+// doesn't undo the GPS chip having already spent power taking the
+// reading).
+//
+// Once a marker/circle exists, updates move it with setLatLng()/
+// setRadius() instead of removing and recreating it. Recreating on
+// every fix would restart the pulse animation from frame zero each
+// time (visibly janky) and churn the DOM for no reason — Leaflet
+// markers are designed to be repositioned in place.
 // ----------------------------------------
 
 const locateButton =
@@ -2014,6 +2222,11 @@ let userLocationMarker = null;
 let userAccuracyCircle = null;
 let locationWatchId = null;
 let hasCenteredOnUser = false;
+let lastAppliedLatLng = null;
+let lastAppliedTime = 0;
+
+const LOCATION_MIN_DISTANCE_METERS = 10;
+const LOCATION_MIN_INTERVAL_MS = 5000;
 
 
 locateButton.addEventListener(
@@ -2045,6 +2258,8 @@ function startWatchingLocation() {
     locateButton.classList.remove("locate-error");
 
     hasCenteredOnUser = false;
+    lastAppliedLatLng = null;
+    lastAppliedTime = 0;
 
 
     locationWatchId =
@@ -2060,11 +2275,7 @@ function startWatchingLocation() {
                     "true"
                 );
 
-                showUserLocation(
-                    position.coords.latitude,
-                    position.coords.longitude,
-                    position.coords.accuracy
-                );
+                handlePositionUpdate(position);
             },
 
             error => {
@@ -2082,6 +2293,50 @@ function startWatchingLocation() {
                 maximumAge: 5000
             }
         );
+}
+
+
+// The filtering described in this section's opening comment — kept
+// separate from showUserLocation() so "should this update apply" and
+// "how do we render an update" don't tangle into one function.
+function handlePositionUpdate(position) {
+
+    const newLatLng =
+        L.latLng(
+            position.coords.latitude,
+            position.coords.longitude
+        );
+
+    const now =
+        Date.now();
+
+
+    if (lastAppliedLatLng) {
+
+        const movedMeters =
+            lastAppliedLatLng.distanceTo(newLatLng);
+
+        const tooSoon =
+            (now - lastAppliedTime) < LOCATION_MIN_INTERVAL_MS;
+
+        const notFarEnough =
+            movedMeters < LOCATION_MIN_DISTANCE_METERS;
+
+
+        if (tooSoon && notFarEnough) {
+            return;
+        }
+    }
+
+
+    lastAppliedLatLng = newLatLng;
+    lastAppliedTime = now;
+
+    showUserLocation(
+        newLatLng.lat,
+        newLatLng.lng,
+        position.coords.accuracy
+    );
 }
 
 
@@ -2115,42 +2370,52 @@ function stopWatchingLocation() {
 
 function showUserLocation(lat, lng, accuracy) {
 
+    const latLng =
+        [lat, lng];
+
+
     if (userLocationMarker) {
-        map.removeLayer(userLocationMarker);
+
+        userLocationMarker.setLatLng(latLng);
+
+    } else {
+
+        userLocationMarker = L.marker(
+            latLng,
+            {
+                icon: L.divIcon({
+                    className: "user-location-wrap",
+                    html: `<div class="user-location-dot"></div>`,
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                }),
+                zIndexOffset: 1000,
+                interactive: false,
+                keyboard: false
+            }
+        ).addTo(map);
     }
-
-    if (userAccuracyCircle) {
-        map.removeLayer(userAccuracyCircle);
-    }
-
-
-    userLocationMarker = L.marker(
-        [lat, lng],
-        {
-            icon: L.divIcon({
-                className: "user-location-wrap",
-                html: `<div class="user-location-dot"></div>`,
-                iconSize: [14, 14],
-                iconAnchor: [7, 7]
-            }),
-            zIndexOffset: 1000,
-            interactive: false,
-            keyboard: false
-        }
-    ).addTo(map);
 
 
     if (Number.isFinite(accuracy)) {
 
-        userAccuracyCircle = L.circle(
-            [lat, lng],
-            {
-                radius: accuracy,
-                className: "user-accuracy-circle",
-                interactive: false,
-                weight: 1
-            }
-        ).addTo(map);
+        if (userAccuracyCircle) {
+
+            userAccuracyCircle.setLatLng(latLng);
+            userAccuracyCircle.setRadius(accuracy);
+
+        } else {
+
+            userAccuracyCircle = L.circle(
+                latLng,
+                {
+                    radius: accuracy,
+                    className: "user-accuracy-circle",
+                    interactive: false,
+                    weight: 1
+                }
+            ).addTo(map);
+        }
     }
 
 
@@ -2162,7 +2427,7 @@ function showUserLocation(lat, lng, accuracy) {
         hasCenteredOnUser = true;
 
         map.setView(
-            [lat, lng],
+            latLng,
             Math.max(map.getZoom(), 15)
         );
     }
@@ -2190,8 +2455,60 @@ function handleLocationError(error) {
 
 
 // ----------------------------------------
-// 27. START
+// 27. NAV DOCK
+// Persistent across every view — dockButtons and the click wiring
+// live here; the active-state highlighting itself happens inside
+// setViewMode() (section 16), since that's the one place every view
+// transition already passes through.
 // ----------------------------------------
+
+dockButtons.forEach(button => {
+
+    button.addEventListener(
+        "click",
+        () => setViewMode(button.dataset.view)
+    );
+});
+
+
+// Measures the dock's actual rendered height rather than trusting a
+// hand-picked number to stay right forever — every layout that needs
+// to clear the dock (the map, the list, the locate button, the
+// toast, the mobile plan panel) reads --dock-height in CSS, so this
+// is the one place that number comes from.
+function syncDockHeight() {
+
+    document.documentElement.style.setProperty(
+        "--dock-height",
+        navDock.offsetHeight + "px"
+    );
+}
+
+const navDock =
+    document.getElementById("nav-dock");
+
+syncDockHeight();
+
+window.addEventListener(
+    "resize",
+    syncDockHeight
+);
+
+
+// ----------------------------------------
+// 28. START
+// ----------------------------------------
+
+// Explicit on purpose, even though #map/.map-controls' CSS defaults
+// already happen to agree with viewMode's initial value: relying on
+// that agreement rather than enforcing it was exactly what broke
+// last time (#map had no default display rule and silently painted
+// over a different default view). It also matters for a second
+// reason here — setViewMode() is the only thing that applies the
+// dock buttons' .active class, so without this call the dock would
+// show on load with nothing highlighted at all, even though the map
+// is what's actually showing.
+setViewMode("map");
 
 loadSavedPlan();
 
