@@ -1,5 +1,5 @@
 // ========================================
-// PUJO MAP — VERSION 0.9
+// PUJO MAP — VERSION 0.11
 //
 // Data source: Dataset_5_Cleaned.xlsx (23 columns, 403 pandals —
 // scope now spans Kolkata plus Howrah, Hooghly, North & South 24
@@ -40,6 +40,23 @@
 // apart at marker size); and the card's status badge is now a full
 // pill (border-radius) rather than a slightly-rounded rectangle — the
 // map pin stays a circle, same as before.
+//
+// v0.10: the card's Maps button no longer starts navigation. It used
+// to open Google Maps' directions flow (/maps/dir/ with the pandal as
+// the destination, so Maps immediately asked for a starting point);
+// it now just shows the place as a pin (/maps/search/), and the user
+// can start directions from there if they want them. Labelled
+// "View on Maps" to match. Also for search engines: the Directory is
+// filled in as soon as data loads instead of on its first open, so
+// crawlers (which never tap the Directory tab) can read the pandal
+// names and zones; its zone headers are real <h2>s.
+//
+// v0.11: the top bar is the same in every view. The map/list toggle
+// button is gone (the dock's Directory tab already does that job), so
+// the map's search bar now gets the width and height the Directory's
+// always had; and the My Plan button reads "My Plan" everywhere
+// (Directory used to shorten it to "Plan" with a CSS override).
+// The Pujodex logo replaces the old text wordmark on wide screens.
 // ========================================
 
 
@@ -325,6 +342,21 @@ async function loadPandals() {
 
         updatePlanUI();
 
+
+        // Fill the Directory now instead of on its first open, so the
+        // pandal names and zones are in the page for search-engine
+        // crawlers (they never tap the Directory tab). Deferred one
+        // tick so the markers paint first; the panel stays hidden
+        // until the user opens it, and setViewMode("list") redraws it
+        // from scratch anyway.
+        setTimeout(() => {
+
+            if (viewMode !== "list") {
+                renderListView(pandals);
+            }
+
+        }, 0);
+
     } catch (error) {
 
         console.error(error);
@@ -444,13 +476,16 @@ function pandalCard(pandal) {
         CONFIDENCE_META[pandal.confidence] ||
         CONFIDENCE_META.unlocated;
 
+    // Shows the place itself (a dropped pin) rather than starting
+    // navigation — /maps/dir/ would open directions with this pandal
+    // as the destination and ask the user for a starting point.
     const mapsUrl =
         pandal.hasCoords
-            ? `https://www.google.com/maps/dir/?api=1&destination=${pandal.lat},${pandal.lng}`
+            ? `https://www.google.com/maps/search/?api=1&query=${pandal.lat},${pandal.lng}`
             : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pandal.address || pandal.name)}`;
 
     const mapsLabel =
-        pandal.hasCoords ? "Navigate" : "Find on Maps";
+        pandal.hasCoords ? "View on Maps" : "Find on Maps";
 
     const alreadyAdded =
         isInPlan(pandal);
@@ -1021,9 +1056,6 @@ document.getElementById(
 // is a placeholder for now (section 27's nav dock links to it).
 // ----------------------------------------
 
-const listToggle =
-    document.getElementById("list-toggle");
-
 const listPanel =
     document.getElementById("list-panel");
 
@@ -1046,16 +1078,6 @@ const dockButtons =
     document.querySelectorAll(".dock-button");
 
 
-listToggle.addEventListener(
-    "click",
-    () => {
-        setViewMode(
-            viewMode === "map" ? "list" : "map"
-        );
-    }
-);
-
-
 function setViewMode(mode) {
 
     viewMode = mode;
@@ -1073,16 +1095,6 @@ function setViewMode(mode) {
 
     exploreView.style.display =
         mode === "explore" ? "flex" : "none";
-
-    listToggle.classList.toggle(
-        "active",
-        mode === "list"
-    );
-
-    listToggle.setAttribute(
-        "aria-pressed",
-        String(mode === "list")
-    );
 
     dockButtons.forEach(button => {
         button.classList.toggle(
@@ -1174,7 +1186,7 @@ function renderListView(data) {
     // When a zone is selected, the chip already tells the user the
     // current context. A second full-width zone bar would just repeat it.
     if (selectedZone !== "all") {
-        const header = document.createElement("div");
+        const header = document.createElement("h2");
         header.className = "list-context-header";
         header.innerHTML = `
             <span>${escapeHTML(selectedZone)}</span>
@@ -1188,7 +1200,7 @@ function renderListView(data) {
             .forEach(pandal => fragment.appendChild(createListRow(pandal)));
     } else {
         groupByZone(data).forEach(group => {
-            const header = document.createElement("div");
+            const header = document.createElement("h2");
             header.className = "list-zone-header";
             header.innerHTML = `
                 <span>${escapeHTML(group.zone)}</span>

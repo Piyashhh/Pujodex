@@ -519,7 +519,7 @@ button {
 
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 
     padding: 11px;
 
@@ -535,28 +535,27 @@ button {
 
 
 /* ================================
-   BRAND — the one typographic "weird" flourish in the app.
+   BRAND — the Pujodex logo, beside the search on wide screens.
+   Hidden on phones and in the Directory (see below); the page's
+   <h1> is a separate, always-present element so that costs nothing.
 ================================ */
 
 .brand {
     min-width: max-content;
 }
 
-.brand h1 {
-    margin: 0;
-
-    font-size: 20px;
-    letter-spacing: -0.01em;
-    line-height: 1;
-
-    color: var(--ink);
-    text-shadow: 2.5px 2.5px 0 var(--marigold);
+/* Drawn with <use> from the sprite at the top of index.html, so it needs
+   an explicit height; the width follows from the artwork's proportions. */
+.brand-logo {
+    display: block;
+    height: 24px;
+    width: auto;
 }
 
 #pandal-count {
     display: block;
 
-    margin-top: 5px;
+    margin-top: 4px;
 
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -576,12 +575,14 @@ button {
     position: relative;
 
     flex: 1;
+    min-width: 0;
 }
 
 #search {
     width: 100%;
 
-    padding: 10px 40px 10px 13px;
+    min-height: 42px;
+    padding: 10px 40px 10px 14px;
 
     border: var(--border-soft);
     border-radius: 3px;
@@ -671,7 +672,8 @@ button {
 
     border: 2.5px solid var(--line);
 
-    padding: 10px 14px;
+    padding: 9px 14px;
+    min-height: 42px;
 
     border-radius: 3px;
 
@@ -723,48 +725,6 @@ button {
     font-weight: 600;
 
     transform: rotate(-6deg);
-}
-
-
-/* ================================
-   LIST TOGGLE — quiet by default, deliberately less loud than the
-   Plan button so the two don't compete for attention. Reads as a
-   pressed "tab" when list view is active.
-================================ */
-
-#list-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-
-    border: 1.5px solid var(--hairline);
-    border-radius: 3px;
-
-    background: var(--paper);
-    color: var(--ink);
-
-    cursor: pointer;
-
-    transition: background-color 0.1s ease, border-color 0.1s ease;
-}
-
-#list-toggle svg {
-    width: 16px;
-    height: 16px;
-}
-
-#list-toggle:hover {
-    border-color: var(--ink);
-}
-
-#list-toggle.active {
-    background: var(--ink);
-    border-color: var(--ink);
-    color: var(--paper-flat);
 }
 
 
@@ -1643,6 +1603,12 @@ button {
     max-width: 320px;
     text-align: center;
 }
+.explore-logo {
+    display: block;
+    width: 200px;
+    height: auto;
+    margin: 0 auto 26px;
+}
 
 .explore-placeholder h2 {
     margin: 0 0 8px;
@@ -1667,7 +1633,7 @@ button {
     .topbar {
         top: 10px;
         width: calc(100% - 20px);
-        padding: 9px;
+        padding: 8px;
     }
 
     .brand {
@@ -1675,7 +1641,7 @@ button {
     }
 
     #plan-button {
-        padding: 10px 12px;
+        padding: 9px 12px;
     }
 
     #search-results {
@@ -1714,35 +1680,12 @@ button {
 ================================================================ */
 
 /* Directory has its own hierarchy: search first, filters second,
-   content third. The map/list toggle is redundant once Directory is
-   already selected in the dock. */
-body[data-view="list"] .brand,
-body[data-view="list"] #list-toggle {
+   content third — so no logo here. The search bar and My Plan button
+   are styled once, in the TOP BAR section, and look the same in every
+   view. There is no map/list toggle button any more; the dock's
+   Directory tab does that job. */
+body[data-view="list"] .brand {
     display: none;
-}
-
-body[data-view="list"] .topbar {
-    gap: 10px;
-}
-
-body[data-view="list"] #search {
-    min-height: 42px;
-    padding-left: 14px;
-    font-size: 14px;
-}
-
-body[data-view="list"] #plan-button {
-    min-height: 42px;
-    padding: 9px 11px;
-}
-
-body[data-view="list"] #plan-button .plan-label {
-    font-size: 0;
-}
-
-body[data-view="list"] #plan-button .plan-label::after {
-    content: "Plan";
-    font-size: 13px;
 }
 
 /* The filters are now a quiet horizontal selector rather than a
@@ -1902,21 +1845,6 @@ body[data-view="list"] #list-panel {
 }
 
 @media (max-width: 600px) {
-    body[data-view="list"] .topbar {
-        top: 10px;
-        width: calc(100% - 20px);
-        padding: 8px;
-    }
-
-    body[data-view="list"] #plan-button {
-        min-width: 62px;
-        padding: 9px 9px;
-    }
-
-    body[data-view="list"] #search {
-        min-width: 0;
-    }
-
     body[data-view="list"] #zone-strip {
         padding-left: 15px;
         padding-right: 15px;
@@ -1932,4 +1860,61 @@ body[data-view="list"] #list-panel {
         padding-top: 12px;
         padding-bottom: 12px;
     }
+}
+
+
+/* ================================
+   SEO / ACCESSIBILITY HELPERS
+================================ */
+
+/* Read by screen readers and search engines, never drawn. Used on the
+   page's <h1>, which has to stay in the page even where the logo is
+   hidden (phones, Directory) — display:none would hide it as well. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Zone headings are real <h2>s now (see renderListView in app.js).
+   Browsers give <h2> a bottom margin the old <div>s didn't have; this
+   keeps the list looking exactly as it did. */
+h2.list-zone-header,
+h2.list-context-header {
+    margin-bottom: 0;
+}
+
+/* Only rendered when JavaScript is off (it lives inside <noscript>). */
+.noscript-notice {
+    position: fixed;
+    top: var(--topbar-clearance);
+    left: 15px;
+    right: 15px;
+    z-index: 1001;
+
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 18px 20px;
+
+    background: var(--paper-flat);
+    border: var(--border-bold);
+    box-shadow: var(--shadow-bold);
+}
+
+.noscript-notice h2 {
+    margin: 0 0 8px;
+    font-size: 18px;
+}
+
+.noscript-notice p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
 }
