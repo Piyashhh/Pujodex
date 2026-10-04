@@ -1,5 +1,5 @@
 // ========================================
-// PUJO MAP — VERSION 0.11
+// PUJO MAP — VERSION 0.12
 //
 // Data source: Dataset_5_Cleaned.xlsx (23 columns, 403 pandals —
 // scope now spans Kolkata plus Howrah, Hooghly, North & South 24
@@ -57,6 +57,15 @@
 // always had; and the My Plan button reads "My Plan" everywhere
 // (Directory used to shorten it to "Plan" with a CSS override).
 // The Pujodex logo replaces the old text wordmark on wide screens.
+//
+// v0.12: search finds pandals however their names are spelled. The old
+// "contains exactly what you typed" filter is replaced by a ranked,
+// sound-aware search (section 28): Sarbojanin = Sarbajanin = Sarvajanin,
+// Bagbazar = Baghbazar = Bag Bazaar, typos and half-typed words are
+// forgiven, Bangla-script input works, and results come best match
+// first (the Directory keeps that order while a search is active).
+// Optional sheet column "Also Known As" adds extra names that only the
+// search reads. Enter jumps to the best match on the map.
 // ========================================
 
 
@@ -247,7 +256,32 @@ function savePlan() {
 // Only the columns below make it into the app today — see
 // Architecture.md's field-mapping table for the full column list
 // and which of these are candidates for a future UI pass.
+//
+// One optional extra column, "Also Known As", is read for the search
+// only (see readAliases()) and never displayed.
 // ----------------------------------------
+
+// Optional sheet column: other names people use for a puja, comma or
+// semicolon separated. Only the search reads it — it is never shown.
+// A sheet without the column simply gets "" here and nothing changes.
+function readAliases(raw) {
+
+    const headers = ["also known as", "aliases", "alias", "search keywords"];
+
+    for (const key of Object.keys(raw)) {
+
+        if (headers.includes(key.trim().toLowerCase())) {
+
+            const value = String(raw[key] || "").trim();
+
+            if (value) {
+                return value;
+            }
+        }
+    }
+
+    return "";
+}
 
 function normalizePandal(raw) {
 
@@ -276,6 +310,7 @@ function normalizePandal(raw) {
         address: String(raw["Address"] || "").trim(),
         landmark: String(raw["Landmark"] || "").trim(),
         city: String(raw["City"] || "").trim(),
+        aliases: readAliases(raw),
         lat: hasCoords ? lat : null,
         lng: hasCoords ? lng : null,
         hasCoords,
@@ -341,6 +376,12 @@ async function loadPandals() {
         populateZoneStrip();
 
         updatePlanUI();
+
+
+        // Build the search index once the first paint is done (a few
+        // milliseconds of work, but the markers shouldn't wait on it).
+        // searchPandals() builds it on demand if a search ever beats this.
+        setTimeout(() => buildSearchIndex(pandals), 0);
 
 
         // Fill the Directory now instead of on its first open, so the
@@ -1185,7 +1226,32 @@ function renderListView(data) {
 
     // When a zone is selected, the chip already tells the user the
     // current context. A second full-width zone bar would just repeat it.
-    if (selectedZone !== "all") {
+    if (data.ranked) {
+
+        // A search is active: keep the engine's best-first order.
+        // Grouping by zone or sorting A–Z would bury the best match.
+        const header = document.createElement("h2");
+        header.className = "list-context-header";
+
+        let label = "Search results";
+
+        if (data.closest) {
+            label = selectedZone !== "all"
+                ? `Closest matches · ${selectedZone}`
+                : "Closest matches";
+        } else if (selectedZone !== "all") {
+            label = selectedZone;
+        }
+
+        header.innerHTML = `
+            <span>${escapeHTML(label)}</span>
+            <span class="list-zone-count">${data.length} ${data.length === 1 ? "pandal" : "pandals"}</span>
+        `;
+        fragment.appendChild(header);
+
+        data.forEach(pandal => fragment.appendChild(createListRow(pandal)));
+
+    } else if (selectedZone !== "all") {
         const header = document.createElement("h2");
         header.className = "list-context-header";
         header.innerHTML = `
@@ -1365,33 +1431,34 @@ function updateZoneStripActiveState() {
 // silently fight each other.
 function currentDirectoryResults() {
 
-    const query =
-        searchInput.value.trim().toLowerCase();
+    const inZone = pandal =>
+        selectedZone === "all" ||
+        (pandal.zone || "Other Zone") === selectedZone;
 
 
-    return pandals.filter(pandal => {
+    if (!searchInput.value.trim()) {
 
-        if (
-            selectedZone !== "all" &&
-            (pandal.zone || "Other Zone") !== selectedZone
-        ) {
-            return false;
-        }
+        return pandals.filter(inZone);
+    }
 
-        if (query) {
 
-            const matches =
-                pandal.name.toLowerCase().includes(query) ||
-                pandal.address.toLowerCase().includes(query) ||
-                pandal.zone.toLowerCase().includes(query);
+    // Ranked across every pandal first, then narrowed to the chosen
+    // zone, so the order is always best match first. renderListView()
+    // reads .ranked/.closest, and both survive re-renders because
+    // lastListData keeps this same array.
+    const found =
+        filterPandals(searchInput.value);
 
-            if (!matches) {
-                return false;
-            }
-        }
+    const results =
+        found.filter(inZone);
 
-        return true;
-    });
+    results.ranked =
+        true;
+
+    results.closest =
+        found.closest;
+
+    return results;
 }
 
 // Builds one collapsed row, wired up to expand into the shared
@@ -1524,36 +1591,65 @@ searchInput.addEventListener(
 );
 
 
+// Ranked, spelling-tolerant search (section 28), best match first.
+// results.closest is true when nothing matched every word and these
+// are the nearest partial matches instead.
 function filterPandals(query) {
 
-    return pandals.filter(
-        pandal => {
-
-            const name =
-                pandal.name.toLowerCase();
-
-            const address =
-                pandal.address.toLowerCase();
-
-            const zone =
-                pandal.zone.toLowerCase();
-
-
-            return (
-                name.includes(query) ||
-                address.includes(query) ||
-                zone.includes(query)
-            );
-
-        }
-    );
+    return searchPandals(query);
 }
+
+
+// Enter jumps straight to the best match on the map (the phone
+// keyboard's Go/Search key does the same), instead of making the user
+// tap a result. In the Directory the list is already filtered, so it
+// only puts the keyboard away.
+searchInput.addEventListener(
+    "keydown",
+    event => {
+
+        if (event.key !== "Enter") {
+            return;
+        }
+
+        event.preventDefault();
+
+        if (!searchInput.value.trim()) {
+            return;
+        }
+
+        if (viewMode === "list") {
+
+            searchInput.blur();
+
+            return;
+        }
+
+        // Same as tapping the first row of the dropdown. A top match
+        // with no coordinates can't be shown on the map, so Enter
+        // leaves the dropdown open rather than jumping somewhere else.
+        const best =
+            filterPandals(searchInput.value)[0];
+
+        if (best && best.hasCoords) {
+
+            selectPandal(best);
+
+            searchInput.blur();
+        }
+    }
+);
 
 
 function handleSearch() {
 
+    // The engine gets the text exactly as typed — a trailing space
+    // tells it the last word is finished, not half-typed.
+    const typed =
+        searchInput.value;
+
     const query =
-        searchInput.value
+        typed
             .trim()
             .toLowerCase();
 
@@ -1568,7 +1664,7 @@ function handleSearch() {
         setViewMode("map");
 
         searchInput.value =
-            query;
+            typed;
     }
 
 
@@ -1604,7 +1700,7 @@ function handleSearch() {
 
 
     const results =
-        filterPandals(query);
+        filterPandals(typed);
 
 
     displaySearchResults(results);
@@ -1634,6 +1730,22 @@ function displaySearchResults(results) {
             "block";
 
         return;
+    }
+
+
+    // Nothing matched every word, so these are the nearest partial matches.
+    if (results.closest) {
+
+        const note =
+            document.createElement("div");
+
+        note.className =
+            "search-note";
+
+        note.textContent =
+            "Closest matches";
+
+        searchResults.appendChild(note);
     }
 
 
@@ -2535,7 +2647,1025 @@ window.addEventListener(
 
 
 // ----------------------------------------
-// 28. START
+// 28. SEARCH ENGINE
+// Called by the map dropdown, the marker filter and the Directory
+// search box (sections 18 and 22 via filterPandals()).
+// ----------------------------------------
+
+// >>> SEARCH-ENGINE:BEGIN
+// ========================================
+// SEARCH ENGINE — finds pandals however the name is spelled.
+//
+// Pandal names are Bengali words written in English letters, and
+// there is no single "right" spelling: Sarbojanin / Sarbajanin /
+// Sarvajanin, Bagbazar / Baghbazar / Bag Bazaar, Pally / Palli / Pali.
+// Typing on a phone adds ordinary typos on top. So the old "does the
+// text contain exactly what I typed" check is replaced by:
+//
+//   1. Fold      lowercase, strip accents/punctuation. Bangla script
+//                is turned into Roman letters first.
+//   2. Sound     every word gets a "sounds-like" key (sh=s, bh=b,
+//                v=b, z=j, oo=u, ee=i, a=o, double letters = one,
+//                ph=f …) so spellings that sound alike share a key.
+//   3. Distance  words are compared with an edit distance whose
+//                costs follow how people actually mis-spell: a<->o
+//                or i<->e are cheap, a dropped vowel or "h" is cheap,
+//                a neighbouring key on the phone keyboard is cheaper
+//                than a random letter, an adjacent swap is cheap.
+//   4. Spacing   "bag bazar" = "bagbazar" = "baghbazar": words are
+//                also compared glued together, both ways round.
+//   5. Typing    the last word may be unfinished, so it also matches
+//                as a prefix (typos allowed) — results appear as you type.
+//   6. Rank      exact > prefix > sounds-alike > close spelling, name
+//                beats address, rare words beat common ones. Words
+//                like "puja" that nearly every name shares are
+//                optional when the query also has a distinctive word.
+//
+// If nothing matches every word, the closest partial matches are shown
+// (flagged with .closest) instead of an empty list.
+//
+// Everything between the BEGIN/END markers is self-contained plain JS
+// with no dependencies on the rest of the app, except the global
+// `pandals` array it indexes.
+// ========================================
+
+
+// ---------- 1. Bangla script -> Roman letters ----------
+// So "সন্তোষ মিত্র স্কোয়ার" finds Santosh Mitra Square. Approximate on
+// purpose (no schwa-deletion): the fuzzy matching below absorbs the
+// difference.
+
+const BN_INDEPENDENT_VOWELS = {
+    "\u0985": "o",  "\u0986": "a",  "\u0987": "i",  "\u0988": "i",    // অ আ ই ঈ
+    "\u0989": "u",  "\u098A": "u",  "\u098B": "ri", "\u098F": "e",    // উ ঊ ঋ এ
+    "\u0990": "oi", "\u0993": "o",  "\u0994": "ou"                    // ঐ ও ঔ
+};
+
+const BN_VOWEL_SIGNS = {
+    "\u09BE": "a",  "\u09BF": "i",  "\u09C0": "i",  "\u09C1": "u",    // া ি ী ু
+    "\u09C2": "u",  "\u09C3": "ri", "\u09C7": "e",  "\u09C8": "oi",   // ূ ৃ ে ৈ
+    "\u09CB": "o",  "\u09CC": "ou"                                    // ো ৌ
+};
+
+const BN_CONSONANTS = {
+    "\u0995": "k",  "\u0996": "kh", "\u0997": "g",  "\u0998": "gh",   // ক খ গ ঘ
+    "\u0999": "ng", "\u099A": "ch", "\u099B": "chh", "\u099C": "j",   // ঙ চ ছ জ
+    "\u099D": "jh", "\u099E": "n",  "\u099F": "t",  "\u09A0": "th",   // ঝ ঞ ট ঠ
+    "\u09A1": "d",  "\u09A2": "dh", "\u09A3": "n",  "\u09A4": "t",    // ড ঢ ণ ত
+    "\u09A5": "th", "\u09A6": "d",  "\u09A7": "dh", "\u09A8": "n",    // থ দ ধ ন
+    "\u09AA": "p",  "\u09AB": "ph", "\u09AC": "b",  "\u09AD": "bh",   // প ফ ব ভ
+    "\u09AE": "m",  "\u09AF": "j",  "\u09B0": "r",  "\u09B2": "l",    // ম য র ল
+    "\u09B6": "sh", "\u09B7": "sh", "\u09B8": "s",  "\u09B9": "h",    // শ ষ স হ
+    "\u09DC": "r",  "\u09DD": "rh", "\u09DF": "y",  "\u09CE": "t"     // ড় ঢ় য় ৎ
+};
+
+const BN_NUKTA_FORMS = { "\u09A1": "r", "\u09A2": "rh", "\u09AF": "y" };
+
+function isBengaliChar(ch) {
+    return ch !== undefined && ch >= "\u0980" && ch <= "\u09FF";
+}
+
+function bengaliToRoman(text) {
+
+    const chars = Array.from(String(text).normalize("NFC"));
+
+    let out = "";
+
+    for (let i = 0; i < chars.length; i++) {
+
+        const ch = chars[i];
+
+        if (BN_CONSONANTS[ch] !== undefined) {
+
+            let roman = BN_CONSONANTS[ch];
+
+            // consonant + nukta (়) is how many keyboards type ড় ঢ় য়
+            if (chars[i + 1] === "\u09BC") {
+                roman = BN_NUKTA_FORMS[ch] || roman;
+                i++;
+            }
+
+            out += roman;
+
+            const next = chars[i + 1];
+
+            if (ch === "\u09CE") continue;                        // ৎ never carries a vowel
+            if (next === "\u09CD") { i++; continue; }             // ্ joins into a conjunct
+            if (BN_VOWEL_SIGNS[next] !== undefined) continue;     // an explicit vowel follows
+            if (isBengaliChar(next)) out += "o";                  // inherent vowel (not word-final)
+
+        } else if (BN_INDEPENDENT_VOWELS[ch] !== undefined) {
+
+            out += BN_INDEPENDENT_VOWELS[ch];
+
+        } else if (BN_VOWEL_SIGNS[ch] !== undefined) {
+
+            out += BN_VOWEL_SIGNS[ch];
+
+        } else if (ch === "\u0982") {                             // ং
+
+            out += "ng";
+
+        } else if (ch >= "\u09E6" && ch <= "\u09EF") {            // Bangla digits
+
+            out += String(ch.charCodeAt(0) - 0x09E6);
+
+        } else if (isBengaliChar(ch)) {
+
+            // chandrabindu, visarga, nukta, stray virama …: silent
+
+        } else {
+
+            out += ch;
+        }
+    }
+
+    return out;
+}
+
+
+// ---------- 2. Folding and sounds-like keys ----------
+
+function searchFold(text) {
+
+    let s = String(text === null || text === undefined ? "" : text);
+
+    if (/[\u0980-\u09FF]/.test(s)) {
+        s = bengaliToRoman(s);
+    }
+
+    return s
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/&/g, " and ")
+        .replace(/['\u2018\u2019`\u00b4]/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
+
+
+// Words whose spellings differ in ways the sound rules can't predict.
+// First entry of each group is the one the others are folded to.
+const SEARCH_ALIAS_GROUPS = [
+    ["lakshmi", "laxmi", "laksmi", "lokkhi", "lokhi", "lakhi", "lakkhi"],
+    ["bose", "basu", "bosu", "bashu", "boshu"],
+    ["kolkata", "calcutta", "kolikata", "kalikata", "culcutta", "calcuta"],
+    ["mukherjee", "mukhopadhyay", "mukerjee", "mookerjee", "mukharjee", "mukhaerjee"],
+    ["chatterjee", "chattopadhyay", "chatterji", "chaterjee", "chatarjee"],
+    ["banerjee", "bandyopadhyay", "bandopadhyay", "banerji", "bannerjee"],
+    ["ganguly", "gangopadhyay", "gangooly", "ganguli"],
+    ["bhattacharya", "bhattacharjee", "bhattacharyya", "bhattacharia"],
+    ["mohammad", "md", "mohd", "mohmmad"],
+    ["howrah", "haora", "hawra", "haowra"],
+    ["hooghly", "hugli", "hoogly", "hughli", "hooghli"],
+    // abbreviations people type
+    ["road", "rd"],
+    ["street", "st", "str"],
+    ["square", "sq", "sqr"],
+    ["park", "pk"],
+    ["avenue", "ave", "av"],
+    ["lane", "ln"],
+    ["near", "nr"]
+];
+
+const SEARCH_ALIAS = new Map();
+
+SEARCH_ALIAS_GROUPS.forEach(group => {
+    group.forEach(word => SEARCH_ALIAS.set(word, group[0]));
+});
+
+
+function phoneticKey(word) {
+
+    let s = SEARCH_ALIAS.get(word) || word;
+
+    if (/^\d+$/.test(s)) {
+        return s;
+    }
+
+    s = s
+        .replace(/x/g, "ks")
+        .replace(/ck/g, "k")
+        .replace(/q/g, "k")
+        .replace(/ch+/g, "C")                    // C = the "ch" sound
+        .replace(/c(?=[eiy])/g, "s")
+        .replace(/c/g, "k")
+        .replace(/sh+/g, "s")                    // শ / ষ / স are all "s" to most ears
+        .replace(/ks/g, "k")                     // ksh / x: Lakshmi, Laxmi, Dakshin
+        .replace(/ph+/g, "p")
+        .replace(/f/g, "p")
+        .replace(/([kgjdtb])h+/g, "$1")          // kh gh jh dh th bh
+        .replace(/z/g, "j")
+        .replace(/v/g, "b")
+        .replace(/([aeiou])w(?=[aeiou])/g, "$1b") // Bhowanipore = Bhabanipur
+        .replace(/(?!^)w/g, "u")                 // ow/aw/kw/sw: a vowel-ish glide
+        .replace(/^w/, "b")
+        .replace(/^y(?=[aeiou])/, "j")           // Yadavpur = Jadavpur
+        .replace(/[ao]y/g, "oi")
+        .replace(/ey/g, "e")
+        .replace(/y/g, "i")
+        .replace(/oo/g, "u")
+        .replace(/ee/g, "i")
+        .replace(/a/g, "o")                      // a and o are interchangeable in Bengali spellings
+        .replace(/ou/g, "o")
+        .replace(/o+/g, "o")
+        .replace(/([a-zC])\1+/g, "$1")           // double letters
+        .replace(/([oiue])h$/, "$1")             // puja-h, allah
+        .replace(/n(?=m)/g, "");                 // sanmilani = sammilani
+
+    return s.length > 100 ? s.slice(0, 100) : s;
+}
+
+function consonantSkeleton(key) {
+    return (/^[oiue]/.test(key) ? "#" : "") +
+        key.replace(/[oiueh]/g, "").replace(/([a-zC])\1+/g, "$1");
+}
+
+function makeSearchToken(text) {
+
+    const isNum = /^\d+$/.test(text);
+    const k = phoneticKey(text);
+
+    return {
+        s: text,
+        k,
+        c: isNum ? text : consonantSkeleton(k),
+        isNum,
+        typing: false
+    };
+}
+
+
+// ---------- 3. Edit distance with spelling-aware costs ----------
+
+const SEARCH_SUB_COST = new Float32Array(128 * 128).fill(1);
+const SEARCH_INDEL_COST = new Float32Array(128).fill(1);
+const SEARCH_ROWS = [new Float32Array(130), new Float32Array(130), new Float32Array(130)];
+const SEARCH_TRANSPOSE_COST = 0.7;
+
+(function initSearchCosts() {
+
+    const code = ch => ch.charCodeAt(0);
+
+    function setSub(a, b, cost) {
+        SEARCH_SUB_COST[code(a) * 128 + code(b)] = cost;
+        SEARCH_SUB_COST[code(b) * 128 + code(a)] = cost;
+    }
+
+    for (let i = 0; i < 128; i++) {
+        SEARCH_SUB_COST[i * 128 + i] = 0;
+    }
+
+    // a neighbouring key on a phone/QWERTY keyboard is a likelier slip
+    const rows = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+    const shift = [0, 0.25, 0.75];
+    const where = {};
+
+    rows.forEach((row, r) => {
+        row.split("").forEach((ch, c) => {
+            where[ch] = { x: c + shift[r], y: r };
+        });
+    });
+
+    Object.keys(where).forEach(a => {
+        Object.keys(where).forEach(b => {
+            if (a === b) return;
+            const dy = Math.abs(where[a].y - where[b].y);
+            const dx = Math.abs(where[a].x - where[b].x);
+            if (dy <= 1 && dx <= 1) setSub(a, b, 0.7);
+        });
+    });
+
+    // vowels (the key already merges a into o)
+    setSub("o", "u", 0.4);
+    setSub("i", "e", 0.3);
+    setSub("e", "o", 0.45);
+    setSub("i", "o", 0.65);
+    setSub("e", "u", 0.7);
+    setSub("i", "u", 0.75);
+
+    // consonants that Bengali spellings swap around
+    setSub("j", "g", 0.45);      // Ballygunge / Ballygunj
+    setSub("s", "C", 0.45);      // Salta / Chalta
+    setSub("k", "C", 0.5);
+    setSub("t", "d", 0.5);
+    setSub("r", "d", 0.45);      // Para / Pada
+    setSub("r", "l", 0.55);
+    setSub("n", "m", 0.5);
+    setSub("n", "l", 0.6);
+    setSub("g", "k", 0.6);
+    setSub("p", "b", 0.7);
+
+    // dropping a vowel or an "h" is the commonest slip of all
+    "oiue".split("").forEach(v => { SEARCH_INDEL_COST[code(v)] = 0.35; });
+    SEARCH_INDEL_COST[code("h")] = 0.25;
+})();
+
+
+function searchMaxCost(len) {
+
+    if (len <= 2) return 0;
+    if (len === 3) return 0.5;
+    if (len <= 5) return 1.05;
+    if (len <= 7) return 1.4;
+    if (len <= 10) return 1.8;
+
+    return 2.3;
+}
+
+// Cost to turn `a` (what was typed) into `b` (a word in the data).
+// anchored=true lets `b` run on past the end (for half-typed words).
+// Gives up early and returns Infinity once the cost exceeds `limit`.
+function weightedDistance(a, b, limit, anchored) {
+
+    const m = a.length;
+    const n = b.length;
+
+    if (m > 120 || n > 120) return Infinity;
+
+    let prev2 = SEARCH_ROWS[0];
+    let prev = SEARCH_ROWS[1];
+    let cur = SEARCH_ROWS[2];
+
+    prev[0] = 0;
+
+    for (let j = 1; j <= n; j++) {
+        prev[j] = prev[j - 1] + SEARCH_INDEL_COST[b.charCodeAt(j - 1) & 127];
+    }
+
+    for (let i = 1; i <= m; i++) {
+
+        const ca = a.charCodeAt(i - 1) & 127;
+        const delA = SEARCH_INDEL_COST[ca];
+        const subRow = ca * 128;
+
+        cur[0] = prev[0] + delA;
+
+        let rowMin = cur[0];
+
+        for (let j = 1; j <= n; j++) {
+
+            const cb = b.charCodeAt(j - 1) & 127;
+
+            let v = prev[j - 1] + SEARCH_SUB_COST[subRow + cb];
+
+            const del = prev[j] + delA;
+            if (del < v) v = del;
+
+            const ins = cur[j - 1] + SEARCH_INDEL_COST[cb];
+            if (ins < v) v = ins;
+
+            if (
+                i > 1 && j > 1 &&
+                ca === (b.charCodeAt(j - 2) & 127) &&
+                (a.charCodeAt(i - 2) & 127) === cb
+            ) {
+                const t = prev2[j - 2] + SEARCH_TRANSPOSE_COST;
+                if (t < v) v = t;
+            }
+
+            cur[j] = v;
+
+            if (v < rowMin) rowMin = v;
+        }
+
+        if (rowMin > limit) return Infinity;
+
+        const tmp = prev2;
+        prev2 = prev;
+        prev = cur;
+        cur = tmp;
+    }
+
+    if (!anchored) return prev[n];
+
+    let best = Infinity;
+
+    for (let j = 0; j <= n; j++) {
+        if (prev[j] < best) best = prev[j];
+    }
+
+    return best;
+}
+
+
+// ---------- 4. How alike are a typed word and a word in the data? ----------
+// 0 = unrelated, 1 = identical. Values below SEARCH_MIN_SIM are "no match".
+
+const SEARCH_MIN_SIM = 0.6;
+const SEARCH_MIN_PAIR_SIM = 0.66;
+// Stricter against words almost every name shares: a short one ("puja")
+// must be nearly exact or "pizza" would match it, a long one
+// ("sarbojanin") can carry a typo or two.
+function searchCommonFloor(len) {
+    return len <= 5 ? 0.8 : (len <= 7 ? 0.74 : 0.66);
+}
+
+function searchTokenSimilarity(q, t, typing) {
+
+    if (q.s === t.s) return 1;
+
+    if (q.isNum || t.isNum) {
+        return (q.isNum && t.isNum && typing && t.s.startsWith(q.s)) ? 0.8 : 0;
+    }
+
+    const ql = q.s.length;
+    const tl = t.s.length;
+
+    // A glued pair of data words (from "Bag Bazar" -> "bagbazar") exists
+    // for long glued queries. A short typed word meets one only as a
+    // plain prefix, or "nutan" would match "New Town".
+    if (t.compound && !q.pair && q.k.length < 6) {
+        return (typing && ql >= 3 && t.s.startsWith(q.s)) ? 0.9 + 0.1 * ql / tl : 0;
+    }
+
+    let best = 0;
+
+    // typed text is the start of the word
+    if (t.s.startsWith(q.s) && (ql >= 3 || (typing && ql >= 1))) {
+        best = 0.9 + 0.1 * ql / tl;
+    }
+
+    // same sound
+    if (q.k === t.k) {
+        best = Math.max(best, 0.94);
+    } else if (
+        q.k.length >= 2 &&
+        (typing || q.k.length >= 3) &&
+        t.k.startsWith(q.k)
+    ) {
+        best = Math.max(best, 0.82 + 0.12 * q.k.length / t.k.length);
+    }
+
+    // typed text sits inside a longer word (tola in Ahiritola)
+    if (ql >= 4 && best < 0.8 && t.s.includes(q.s)) {
+        best = Math.max(best, 0.7 + 0.1 * ql / tl);
+    }
+
+    // same consonants, different vowels (Sarbojanin / Sirbijinin) — only
+    // for longer words of similar length, or "ananda" would match "and"
+    if (
+        best < 0.74 && q.c.length >= 4 && q.c === t.c &&
+        q.k.length >= 5 && t.k.length >= 5 &&
+        Math.abs(q.k.length - t.k.length) <= 1
+    ) {
+        best = 0.74;
+    }
+
+    // close spelling
+    const qk = q.k;
+    const tk = t.k;
+    const maxLen = Math.max(qk.length, tk.length);
+
+    // the budget follows the shorter word (otherwise a long shared word
+    // like "sarbojanin" would hide errors in the distinctive one), and
+    // two words glued together get at most about one slip between them
+    let limit = searchMaxCost(Math.min(qk.length, tk.length));
+    if (q.pair) limit = Math.min(limit, 1.05);
+
+    if (best < 0.92 && Math.abs(qk.length - tk.length) * 0.25 <= limit) {
+
+        const d = weightedDistance(qk, tk, limit, false);
+
+        if (d <= limit) {
+            best = Math.max(best, 0.92 * (1 - d / maxLen));
+        }
+    }
+
+    // half-typed word with a typo in it
+    if (typing && best < 0.84 && qk.length >= 3) {
+
+        let lim = searchMaxCost(qk.length) * 0.9;
+        if (q.pair) lim = Math.min(lim, 1.0);
+        const d = weightedDistance(qk, tk, lim, true);
+
+        if (d <= lim) {
+            best = Math.max(best, 0.84 * (1 - d / qk.length));
+        }
+    }
+
+    return best;
+}
+
+
+// ---------- 5. Index ----------
+
+const SEARCH_FIELDS = [
+    { key: "name",     weight: 1.00 },
+    { key: "club",     weight: 0.95 },
+    // optional sheet column "Also Known As": other names people use for
+    // the puja (comma / semicolon separated). Searched, never shown.
+    { key: "aliases",  weight: 0.92, multi: true },
+    { key: "landmark", weight: 0.72 },
+    { key: "address",  weight: 0.58 },
+    { key: "zone",     weight: 0.52 },
+    { key: "city",     weight: 0.52 }
+];
+
+const SEARCH_NAME_FIELD_COUNT = 3;       // name + club + aliases count as "the name"
+const SEARCH_MAX_QUERY_WORDS = 8;
+const SEARCH_WEAK_DF = 0.12;             // a word in >12% of pandals is "common"
+
+const SEARCH_ROMAN = [
+    "", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
+    "xi", "xii", "xiii", "xiv", "xv", "xvi", "xvii", "xviii", "xix", "xx"
+];
+
+// Sector V = Sector 5
+function searchNumeralAlias(word) {
+
+    if (/^\d+$/.test(word)) {
+        const n = Number(word);
+        return n >= 1 && n <= 20 ? SEARCH_ROMAN[n] : null;
+    }
+
+    const i = SEARCH_ROMAN.indexOf(word);
+
+    return i > 0 ? String(i) : null;
+}
+
+// Words that say "this is a puja" rather than which one.
+const SEARCH_STOP_KEYS = new Set(
+    [
+        "puja", "durga", "durgotsav", "utsav", "pandal", "mandap",
+        "near", "the", "of", "and", "in", "at", "committee", "2025", "2026"
+    ].map(word => phoneticKey(word))
+);
+
+let searchIndex = null;
+let searchSimCache = new Map();
+
+
+function buildSearchIndex(list) {
+
+    const vocab = [];
+    const vocabMap = new Map();
+    const dfByKey = new Map();
+    const docs = [];
+
+    function idFor(text, isCompound) {
+
+        if (text.length > 48) text = text.slice(0, 48);
+
+        const slot = (isCompound ? "~" : "") + text;
+
+        let id = vocabMap.get(slot);
+
+        if (id === undefined) {
+            id = vocab.length;
+
+            const token = makeSearchToken(text);
+            token.compound = Boolean(isCompound);
+
+            vocab.push(token);
+            vocabMap.set(slot, id);
+        }
+
+        return id;
+    }
+
+    list.forEach((pandal, position) => {
+
+        const ids = [];
+        const fields = [];
+        const compound = [];
+        const seenKeys = new Set();
+
+        // one group of words per name / club / address / each alias
+        const groups = [];
+
+        SEARCH_FIELDS.forEach((field, f) => {
+
+            const value = pandal[field.key];
+            const parts = field.multi
+                ? String(value || "").split(/[,;|\n]+/)
+                : [value];
+
+            parts.forEach(part => {
+
+                const words = searchFold(part).split(" ").filter(Boolean);
+
+                if (words.length) groups.push({ f, words });
+            });
+        });
+
+        groups.forEach(({ f, words }) => {
+
+            const push = (text, isCompound) => {
+                ids.push(idFor(text, isCompound));
+                fields.push(f);
+                compound.push(isCompound ? 1 : 0);
+            };
+
+            words.forEach(word => {
+
+                push(word, false);
+
+                const alias = searchNumeralAlias(word);
+                if (alias) push(alias, false);
+
+                const key = vocab[idFor(word, false)].k;
+
+                if (!seenKeys.has(key)) {
+                    seenKeys.add(key);
+                    dfByKey.set(key, (dfByKey.get(key) || 0) + 1);
+                }
+            });
+
+            // glued neighbours, so "bag bazar" can meet "baghbazar"
+            for (let i = 0; i + 1 < words.length; i++) {
+                push(words[i] + words[i + 1], true);
+            }
+
+            if (words.length >= 3) {
+                push(words.join(""), true);
+            }
+        });
+
+        // every way of writing the name: the name itself, then each alias
+        const nameGroups = groups.filter(group => group.f < SEARCH_NAME_FIELD_COUNT);
+        const joined = [];
+
+        nameGroups.forEach(group => {
+
+            const text = group.words.join("");
+
+            if (group.f === 0 || group.f === 2) {
+                joined.push(text);
+            }
+        });
+
+        const nameWordCount = (groups.find(group => group.f === 0) || { words: [] }).words.length;
+
+        docs.push({
+            pandal,
+            position,
+            ids: Int32Array.from(ids),
+            fields: Uint8Array.from(fields),
+            compound: Uint8Array.from(compound),
+            joined,
+            joinedKeys: joined.map(text => phoneticKey(text)),
+            nameWordCount,
+            grams: trigramSet(phoneticKey(
+                nameGroups.map(group => group.words.join("")).join("")
+            ))
+        });
+    });
+
+    // Words that nearly every name shares ("sarbojanin", "puja", "road")
+    // are only matched closely — a loose look-alike of one of them
+    // ("pizza" ~ "puja") says nothing about which pandal is meant.
+    vocab.forEach(token => {
+
+        const share = (dfByKey.get(token.k) || 0) / Math.max(1, list.length);
+
+        token.common = !token.isNum &&
+            (SEARCH_STOP_KEYS.has(token.k) || share >= SEARCH_WEAK_DF);
+    });
+
+    searchIndex = {
+        source: list,
+        vocab,
+        dfByKey,
+        docs,
+        total: list.length
+    };
+
+    searchSimCache = new Map();
+
+    return searchIndex;
+}
+
+function trigramSet(key) {
+
+    const grams = new Set();
+    const padded = "^" + key + "$";
+
+    for (let i = 0; i + 3 <= padded.length; i++) {
+        grams.add(padded.slice(i, i + 3));
+    }
+
+    return grams;
+}
+
+
+// ---------- 6. Search ----------
+
+function searchSimilarities(token) {
+
+    const cacheKey = token.s + (token.typing ? "|t" : "|f");
+
+    let sims = searchSimCache.get(cacheKey);
+
+    if (sims) return sims;
+
+    const vocab = searchIndex.vocab;
+    const minSim = token.pair ? SEARCH_MIN_PAIR_SIM : SEARCH_MIN_SIM;
+
+    sims = new Float32Array(vocab.length);
+
+    for (let v = 0; v < vocab.length; v++) {
+
+        const sim = searchTokenSimilarity(token, vocab[v], token.typing);
+
+        const floor = vocab[v].common
+            ? Math.max(minSim, searchCommonFloor(vocab[v].k.length))
+            : minSim;
+
+        if (sim >= floor) sims[v] = sim;
+    }
+
+    if (searchSimCache.size > 400) searchSimCache.clear();
+
+    searchSimCache.set(cacheKey, sims);
+
+    return sims;
+}
+
+
+// Ranked pandals for whatever was typed. The array is in best-first
+// order; .closest is true when nothing matched every word and these
+// are the nearest partial matches instead; .scores runs parallel.
+function searchPandals(rawQuery) {
+
+    const raw = String(rawQuery === null || rawQuery === undefined ? "" : rawQuery);
+
+    if (!searchIndex || searchIndex.source !== pandals) {
+        buildSearchIndex(pandals);
+    }
+
+    const words = searchFold(raw).split(" ").filter(Boolean).slice(0, SEARCH_MAX_QUERY_WORDS);
+
+    if (words.length === 0) {
+
+        // blank = no filter; punctuation only ("!!!") = nothing to find
+        const out = raw.trim() ? [] : pandals.slice();
+
+        out.closest = false;
+        out.scores = out.map(() => 0);
+
+        return out;
+    }
+
+    const stillTyping = !/\s$/.test(raw);
+    const { docs, total, dfByKey } = searchIndex;
+
+    const tokens = words.map((word, i) => {
+
+        const token = makeSearchToken(word.length > 40 ? word.slice(0, 40) : word);
+
+        token.typing = stillTyping && i === words.length - 1;
+
+        let df = dfByKey.get(token.k) || 0;
+
+        // A spelling the data doesn't contain is judged by the word it
+        // is closest to: a mangled "sarbojarqin" is still the very
+        // common "sarbojanin", not a rare word nobody has.
+        if (!df) {
+
+            const sims = searchSimilarities(token);
+            let bestSim = 0;
+            let bestId = -1;
+
+            for (let v = 0; v < sims.length; v++) {
+                if (sims[v] > bestSim) { bestSim = sims[v]; bestId = v; }
+            }
+
+            if (bestId >= 0) df = dfByKey.get(searchIndex.vocab[bestId].k) || 0;
+        }
+
+        const idf = df ? Math.log(1 + total / df) / Math.log(1 + total) : 1;
+
+        token.share = df / total;
+        token.weight = Math.sqrt(Math.min(token.s.length, 9)) * (0.4 + 0.6 * idf);
+        token.optional = SEARCH_STOP_KEYS.has(token.k) || token.share >= SEARCH_WEAK_DF;
+
+        return token;
+    });
+
+    // a query made only of common words still has to match them
+    if (tokens.every(token => token.optional)) {
+        tokens.forEach(token => { token.optional = false; });
+    }
+
+    const n = tokens.length;
+
+    // segments: each single word, plus each glued pair of neighbours
+    const segments = [];
+
+    tokens.forEach((token, i) => {
+        segments.push({ token, from: i, to: i, single: true });
+    });
+
+    for (let i = 0; i + 1 < n; i++) {
+
+        const pair = makeSearchToken(tokens[i].s + tokens[i + 1].s);
+
+        pair.typing = tokens[i + 1].typing;
+        pair.pair = true;
+
+        segments.push({ token: pair, from: i, to: i + 1, single: false });
+    }
+
+    segments.forEach((segment, g) => {
+
+        segment.g = g;
+        segment.sims = searchSimilarities(segment.token);
+
+        let all = 0;
+        let required = 0;
+
+        for (let i = segment.from; i <= segment.to; i++) {
+            all += tokens[i].weight;
+            if (!tokens[i].optional) required += tokens[i].weight;
+        }
+
+        segment.weightAll = all;
+        segment.weightRequired = required;
+        segment.minSim = segment.single ? SEARCH_MIN_SIM : SEARCH_MIN_PAIR_SIM;
+    });
+
+    const singles = segments.filter(segment => segment.single);
+    const pairs = segments.filter(segment => !segment.single);
+
+    const requiredTotal = tokens.reduce((sum, t) => sum + (t.optional ? 0 : t.weight), 0);
+    const weightTotal = tokens.reduce((sum, t) => sum + t.weight, 0);
+
+    const glued = tokens.map(t => t.s).join("");
+    const gluedKey = phoneticKey(glued);
+
+    const segCount = segments.length;
+    const best = new Float32Array(segCount);        // best raw similarity in the pandal
+    const bestWeighted = new Float32Array(segCount);
+    const bestInName = new Float32Array(segCount);
+    const fieldWeights = SEARCH_FIELDS.map(field => field.weight);
+
+    const strict = [];
+    const partial = [];
+
+    for (let d = 0; d < docs.length; d++) {
+
+        const doc = docs[d];
+
+        best.fill(0);
+        bestWeighted.fill(0);
+        bestInName.fill(0);
+
+        for (let e = 0; e < doc.ids.length; e++) {
+
+            const id = doc.ids[e];
+            const f = doc.fields[e];
+            const scale = fieldWeights[f] * (doc.compound[e] ? 0.97 : 1);
+            const inName = f < SEARCH_NAME_FIELD_COUNT;
+
+            for (let g = 0; g < segCount; g++) {
+
+                const sim = segments[g].sims[id];
+
+                if (sim === 0) continue;
+
+                if (sim > best[g]) best[g] = sim;
+                if (sim * scale > bestWeighted[g]) bestWeighted[g] = sim * scale;
+                if (inName && sim > bestInName[g]) bestInName[g] = sim;
+            }
+        }
+
+        // choose the cover of the typed words (singles and/or glued pairs)
+        // that matches the most weight
+        const state = new Array(n + 1).fill(null);
+
+        state[0] = { covered: 0, gain: 0, inName: true, weakest: 1 };
+
+        for (let i = 0; i < n; i++) {
+
+            const here = state[i];
+
+            if (!here) continue;
+
+            const options = [singles[i]];
+
+            if (i + 1 < n) options.push(pairs[i]);
+
+            for (const segment of options) {
+
+                const g = segment.g;
+                const hit = best[g] >= segment.minSim;
+                const next = {
+                    covered: here.covered + (hit ? segment.weightRequired : 0),
+                    gain: here.gain + (hit ? segment.weightAll * bestWeighted[g] * (segment.single ? 1 : 0.98) : 0),
+                    inName: here.inName && (
+                        segment.weightRequired === 0 ||
+                        (hit && bestInName[g] >= segment.minSim)
+                    ),
+                    weakest: (hit && segment.weightRequired > 0)
+                        ? Math.min(here.weakest, best[g])
+                        : here.weakest
+                };
+
+                const slot = segment.to + 1;
+                const old = state[slot];
+
+                if (
+                    !old ||
+                    next.covered > old.covered + 1e-9 ||
+                    (Math.abs(next.covered - old.covered) <= 1e-9 && next.gain > old.gain)
+                ) {
+                    state[slot] = next;
+                }
+            }
+        }
+
+        const result = state[n];
+
+        if (!result || result.gain === 0) continue;
+
+        let score = result.gain / weightTotal;
+
+        if (result.inName) score += 0.10;
+
+        if (doc.joined.includes(glued)) score += 0.25;
+        else if (doc.joinedKeys.includes(gluedKey)) score += 0.15;
+        else if (glued.length >= 3 && doc.joined.some(text => text.startsWith(glued))) score += 0.08;
+
+        const entry = {
+            doc,
+            score,
+            weakest: result.weakest,
+            coverage: requiredTotal > 0 ? result.covered / requiredTotal : 1
+        };
+
+        if (entry.coverage >= 0.999) {
+            strict.push(entry);
+        } else if (entry.coverage >= 0.25) {
+            partial.push(entry);
+        }
+    }
+
+    const byScore = (a, b) =>
+        (b.score - a.score) ||
+        (a.doc.nameWordCount - b.doc.nameWordCount) ||
+        (a.doc.position - b.doc.position);
+
+    let chosen = strict;
+    let closest = false;
+
+    if (strict.length === 0) {
+
+        closest = true;
+
+        partial.sort((a, b) => (b.coverage - a.coverage) || byScore(a, b));
+        chosen = partial.slice(0, 25);
+
+        // last resort: overall resemblance of the whole name, whatever the word breaks
+        if (chosen.length === 0 && gluedKey.length >= 4) {
+
+            const queryGrams = trigramSet(gluedKey);
+            const near = [];
+
+            docs.forEach(doc => {
+
+                let shared = 0;
+
+                queryGrams.forEach(gram => {
+                    if (doc.grams.has(gram)) shared++;
+                });
+
+                const dice = (2 * shared) / (queryGrams.size + doc.grams.size);
+
+                if (dice >= 0.45) near.push({ doc, score: dice, coverage: 0 });
+            });
+
+            near.sort(byScore);
+            chosen = near.slice(0, 15);
+        }
+
+    } else {
+
+        // When something matches confidently, drop the much weaker
+        // look-alikes (a typo-level match for a short word is only
+        // worth showing if nothing better exists).
+        const top = strict.reduce((m, e) => Math.max(m, e.weakest), 0);
+
+        if (top >= 0.9) {
+            chosen = strict.filter(e => e.weakest >= 0.8);
+        }
+
+        chosen.sort(byScore);
+    }
+
+    const out = chosen.map(entry => entry.doc.pandal);
+
+    out.closest = closest;
+    out.scores = chosen.map(entry => entry.score);
+
+    return out;
+}
+// <<< SEARCH-ENGINE:END
+
+
+// ----------------------------------------
+// 29. START
 // ----------------------------------------
 
 // Explicit on purpose, even though #map/.map-controls' CSS defaults
