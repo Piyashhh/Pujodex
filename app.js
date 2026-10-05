@@ -66,6 +66,11 @@
 // first (the Directory keeps that order while a search is active).
 // Optional sheet column "Also Known As" adds extra names that only the
 // search reads. Enter jumps to the best match on the map.
+//
+// v0.13: the card's "View on Maps" button uses the sheet's
+// "Google Maps Link" first; if that is blank, it falls back to a
+// coordinate-based Google Maps URL, then the existing address/name search
+// fallback for rows that have neither.
 // ========================================
 
 
@@ -251,8 +256,9 @@ function savePlan() {
 // 6. NORMALIZE A RAW ROW
 // The sheet has 23 columns; several (Municipality, Post Office,
 // Police Station, District, State, Country, Pincode, Puja Estd.
-// Year, Puja Type, Official Website/E-mail/Facebook, Google Maps
-// Link) exist for provenance/enrichment but aren't surfaced yet.
+// Year, Puja Type, Official Website/E-mail/Facebook) exist for
+// provenance/enrichment but aren't surfaced yet. Google Maps Link is read
+// specifically for the card's map button.
 // Only the columns below make it into the app today — see
 // Architecture.md's field-mapping table for the full column list
 // and which of these are candidates for a future UI pass.
@@ -310,6 +316,7 @@ function normalizePandal(raw) {
         address: String(raw["Address"] || "").trim(),
         landmark: String(raw["Landmark"] || "").trim(),
         city: String(raw["City"] || "").trim(),
+        googleMapsLink: String(raw["Google Maps Link"] || "").trim(),
         aliases: readAliases(raw),
         lat: hasCoords ? lat : null,
         lng: hasCoords ? lng : null,
@@ -517,16 +524,19 @@ function pandalCard(pandal) {
         CONFIDENCE_META[pandal.confidence] ||
         CONFIDENCE_META.unlocated;
 
-    // Shows the place itself (a dropped pin) rather than starting
-    // navigation — /maps/dir/ would open directions with this pandal
-    // as the destination and ask the user for a starting point.
+    // Prefer the exact Google Maps URL stored in the sheet.
+    // If it is missing, build a pin URL from the row's coordinates.
+    // Rows with neither still use the existing address/name search fallback.
     const mapsUrl =
-        pandal.hasCoords
+        pandal.googleMapsLink ||
+        (pandal.hasCoords
             ? `https://www.google.com/maps/search/?api=1&query=${pandal.lat},${pandal.lng}`
-            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pandal.address || pandal.name)}`;
+            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pandal.address || pandal.name)}`);
 
     const mapsLabel =
-        pandal.hasCoords ? "View on Maps" : "Find on Maps";
+        (pandal.googleMapsLink || pandal.hasCoords)
+            ? "View on Maps"
+            : "Find on Maps";
 
     const alreadyAdded =
         isInPlan(pandal);
