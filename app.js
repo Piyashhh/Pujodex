@@ -1,5 +1,5 @@
 // ========================================
-// PUJO MAP — VERSION 0.12
+// PUJO MAP — VERSION 0.14
 //
 // Data source: Dataset_5_Cleaned.xlsx (23 columns, 403 pandals —
 // scope now spans Kolkata plus Howrah, Hooghly, North & South 24
@@ -67,7 +67,7 @@
 // Optional sheet column "Also Known As" adds extra names that only the
 // search reads. Enter jumps to the best match on the map.
 //
-// v0.13: the card's "View on Maps" button uses the sheet's
+// v0.14: the card's "View on Maps" button uses the sheet's
 // "Google Maps Link" first; if that is blank, it falls back to a
 // coordinate-based Google Maps URL, then the existing address/name search
 // fallback for rows that have neither.
