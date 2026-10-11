@@ -1,0 +1,243 @@
+[
+  {
+    "id": "north-central-pandal-trail",
+    "title": "North & Central Kolkata",
+    "area": "North & Central Kolkata",
+    "start": "Tala Prattoy",
+    "description": "A 15-stop trail through North Kolkata’s neighbourhood favourites and central-city landmarks.",
+    "tip": "A broad North and Central Kolkata circuit. Follow the Maps legs in sequence and check each stop before setting out.",
+    "notes": [
+      "Route order follows the supplied list; it has not been independently optimized for walking distance."
+    ],
+    "creatorName": "",
+    "creatorProfileUrl": "",
+    "sourcePostUrl": "",
+    "stops": [
+      {
+        "name": "Tala Prattoy",
+        "pandalId": "KDP-0402"
+      },
+      {
+        "name": "Baghbazar Sarbojanin",
+        "pandalId": "KDP-0400"
+      },
+      {
+        "name": "Kumartuli Park",
+        "pandalId": "KDP-0213"
+      },
+      {
+        "name": "Ahiritola Sarbojanin",
+        "pandalId": "KDP-0403"
+      },
+      {
+        "name": "Sovabazar Rajbari"
+      },
+      {
+        "name": "Jagat Mukherjee Park",
+        "pandalId": "KDP-0174"
+      },
+      {
+        "name": "Hatibagan Nabin Pally",
+        "pandalId": "KDP-0164"
+      },
+      {
+        "name": "Hatibagan Sarbojanin",
+        "pandalId": "KDP-0399"
+      },
+      {
+        "name": "Kashi Bose Lane",
+        "pandalId": "KDP-0197"
+      },
+      {
+        "name": "Simla Byayam Samity",
+        "pandalId": "KDP-0395"
+      },
+      {
+        "name": "Chaltabagan Lohapatty",
+        "datasetName": "Maniktala Chaltabagan Lohapatty"
+      },
+      {
+        "name": "Chorebagan Sarbojanin",
+        "pandalId": "KDP-0116"
+      },
+      {
+        "name": "Md Ali Park",
+        "pandalId": "KDP-0228"
+      },
+      {
+        "name": "College Square"
+      },
+      {
+        "name": "Santosh Mitra Square",
+        "pandalId": "KDP-0315"
+      }
+    ]
+  },
+  {
+    "id": "sreebhumi-dum-dum-circuit",
+    "title": "Sreebhumi & Dum Dum",
+    "area": "North Kolkata",
+    "start": "Sree Bhumi Sporting Club",
+    "description": "A focused trail around Sreebhumi, Dum Dum Park and nearby North Kolkata pandals.",
+    "tip": "Compact northern circuit. Review the stop list and follow the two linked Maps legs in sequence.",
+    "notes": [
+      "Stop order is preserved from the existing Pujodex route data."
+    ],
+    "creatorName": "",
+    "creatorProfileUrl": "",
+    "sourcePostUrl": "",
+    "stops": [
+      {
+        "name": "Sree Bhumi Sporting Club",
+        "pandalId": "KDP-0343"
+      },
+      {
+        "name": "Dum Dum Park Bharat Chakra",
+        "pandalId": "KDP-0134"
+      },
+      {
+        "name": "Dum Dum Park Tarun Dal",
+        "pandalId": "KDP-0397"
+      },
+      {
+        "name": "Tala Prattoy",
+        "pandalId": "KDP-0402"
+      },
+      {
+        "name": "Telengabagan",
+        "pandalId": "KDP-0356"
+      },
+      {
+        "name": "Golaghata Sammilani",
+        "pandalId": "KDP-0149"
+      },
+      {
+        "name": "Dakshindari Youth"
+      }
+    ]
+  },
+  {
+    "id": "south-kolkata-long-walk",
+    "title": "South Kolkata Long Walk",
+    "area": "South Kolkata",
+    "start": "Bosepukur Sitala Mandir",
+    "description": "A 15-stop South Kolkata trail, from Bosepukur through the Gariahat belt to Chetla and Suruchi Sangha.",
+    "tip": "This is a long circuit. Review the stops and consider splitting it across separate outings.",
+    "notes": [
+      "Order is based on the supplied 15-stop list and cross-checked against a published 2026 South Kolkata route. Distances and shortest-path claims are not shown.",
+      "Bosepukur Sitala Mandir is deliberately left without a Puja ID because the reviewed cross-check warned against conflating it with the Bosepukur Talbagan dataset entry.",
+      "Shib Mandir is left without a Puja ID because the available match is too generic to confirm safely."
+    ],
+    "creatorName": "",
+    "creatorProfileUrl": "",
+    "sourcePostUrl": "",
+    "stops": [
+      {
+        "name": "Bosepukur Sitala Mandir"
+      },
+      {
+        "name": "Bosepukur Talbagan",
+        "pandalId": "KDP-0100"
+      },
+      {
+        "name": "Babubagan",
+        "pandalId": "KDP-0035"
+      },
+      {
+        "name": "Jodhpur Park",
+        "pandalId": "KDP-0015"
+      },
+      {
+        "name": "Ekdalia Evergreen",
+        "pandalId": "KDP-0137"
+      },
+      {
+        "name": "Singhi Park",
+        "pandalId": "KDP-0335"
+      },
+      {
+        "name": "Hindustan Park",
+        "pandalId": "KDP-0392"
+      },
+      {
+        "name": "Ballygunge Cultural",
+        "pandalId": "KDP-0047"
+      },
+      {
+        "name": "Tridhara Sammilani",
+        "pandalId": "KDP-0361"
+      },
+      {
+        "name": "Deshapriya Park",
+        "pandalId": "KDP-0128"
+      },
+      {
+        "name": "Shib Mandir"
+      },
+      {
+        "name": "Mudiali Club",
+        "pandalId": "KDP-0238"
+      },
+      {
+        "name": "Badamtala Ashar Sangha",
+        "pandalId": "KDP-0037"
+      },
+      {
+        "name": "Chetla Agrani",
+        "pandalId": "KDP-0113"
+      },
+      {
+        "name": "Suruchi Sangha",
+        "pandalId": "KDP-0250"
+      }
+    ]
+  },
+  {
+    "id": "south-kolkata-core",
+    "title": "South Kolkata Core",
+    "area": "South Kolkata",
+    "start": "Deshapriya Park",
+    "description": "An 8-stop route through the compact Gariahat and Ballygunge puja belt.",
+    "tip": "A shorter alternative to the 15-stop South Kolkata trail.",
+    "notes": [
+      "Stop order follows a published 2026 South Core route; route distance and walking time are not displayed."
+    ],
+    "creatorName": "",
+    "creatorProfileUrl": "",
+    "sourcePostUrl": "",
+    "stops": [
+      {
+        "name": "Deshapriya Park",
+        "pandalId": "KDP-0128"
+      },
+      {
+        "name": "Tridhara Sammilani",
+        "pandalId": "KDP-0361"
+      },
+      {
+        "name": "Ballygunge Cultural",
+        "pandalId": "KDP-0047"
+      },
+      {
+        "name": "Hindustan Park",
+        "pandalId": "KDP-0392"
+      },
+      {
+        "name": "Singhi Park",
+        "pandalId": "KDP-0335"
+      },
+      {
+        "name": "Ekdalia Evergreen",
+        "pandalId": "KDP-0137"
+      },
+      {
+        "name": "21 Pally",
+        "pandalId": "KDP-0004"
+      },
+      {
+        "name": "Adi Ballygunge Sarbojanin",
+        "pandalId": "KDP-0019"
+      }
+    ]
+  }
+]

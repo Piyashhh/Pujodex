@@ -1,5 +1,5 @@
 // ========================================
-// PUJO MAP — VERSION 0.14
+// PUJO MAP — VERSION 0.18
 //
 // Data source: Dataset_5_Cleaned.xlsx (23 columns, 403 pandals —
 // scope now spans Kolkata plus Howrah, Hooghly, North & South 24
@@ -41,12 +41,8 @@
 // pill (border-radius) rather than a slightly-rounded rectangle — the
 // map pin stays a circle, same as before.
 //
-// v0.10: the card's Maps button no longer starts navigation. It used
-// to open Google Maps' directions flow (/maps/dir/ with the pandal as
-// the destination, so Maps immediately asked for a starting point);
-// it now just shows the place as a pin (/maps/search/), and the user
-// can start directions from there if they want them. Labelled
-// "View on Maps" to match. Also for search engines: the Directory is
+// v0.10: the Directory's Maps button was changed from a navigation
+// flow to a place-search destination. Also for search engines: the Directory is
 // filled in as soon as data loads instead of on its first open, so
 // crawlers (which never tap the Directory tab) can read the pandal
 // names and zones; its zone headers are real <h2>s.
@@ -67,6 +63,10 @@
 // Optional sheet column "Also Known As" adds extra names that only the
 // search reads. Enter jumps to the best match on the map.
 //
+// v0.18: Explore is a compact curated-route directory. Cards disclose ordered
+// stops only; each stop opens its own Maps destination. Explore never changes My Plan.
+// Legacy saved route entries remain readable/removable for backwards compatibility.
+//
 // v0.14: the card's "View on Maps" button uses the sheet's
 // "Google Maps Link" first; if that is blank, it falls back to a
 // coordinate-based Google Maps URL, then the existing address/name search
@@ -78,7 +78,13 @@
 // 1. MAP
 // ----------------------------------------
 
-const map = L.map("map").setView(
+const reduceMotion = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+const map = L.map("map", {
+    zoomAnimation: !reduceMotion,
+    fadeAnimation: !reduceMotion,
+    markerZoomAnimation: !reduceMotion
+}).setView(
     [22.5726, 88.3639],
     12
 );
@@ -199,7 +205,14 @@ function pandalIcon(confidence, inPlan) {
 // 4. APPLICATION STATE
 // ----------------------------------------
 
-let pandals = [];       // every row from the sheet, normalized
+let pandals = [];       // displayable rows with Puja IDs
+let pandalCatalog = []; // all normalized rows, including current no-ID route references
+let curatedRoutes = []; // loaded from data/routes.json
+let routesState = "loading";      // "loading" | "ready" | "error"
+let renderedRoutesKey = "";       // lets Explore skip full re-renders when only the plan changed
+let catalogById = new Map();      // first row per Puja ID
+let catalogByNameKey = new Map(); // normalized name -> rows (exact-name route matching)
+let resolvedStopCache = new WeakMap();
 
 let markers = [];        // Leaflet markers — high/medium confidence only
 
@@ -217,36 +230,38 @@ let viewMode = "map";    // "map" | "list" | "explore"
 // ----------------------------------------
 
 function loadSavedPlan() {
+    plan = [];
 
-    const savedPlan =
-        localStorage.getItem("pujoPlan");
-
-    if (!savedPlan) {
-        plan = [];
+    let saved = null;
+    try {
+        saved = localStorage.getItem("pujoPlan");
+    } catch (error) {
+        // Storage can be blocked (private modes, strict settings): run with an empty plan.
+        console.warn("Saved plan unavailable:", error);
         return;
     }
 
+    if (!saved) return;
+
     try {
+        const parsed = JSON.parse(saved);
 
-        plan = JSON.parse(savedPlan);
-
+        // Entries are legacy full pandal objects or { type: "route", routeId }.
+        // Non-objects are dropped so one bad entry can't break the plan UI.
+        if (Array.isArray(parsed)) {
+            plan = parsed.filter(item => item && typeof item === "object");
+        }
     } catch (error) {
-
-        console.error(
-            "Could not load saved plan:",
-            error
-        );
-
-        plan = [];
+        console.error("Could not load saved plan:", error);
     }
 }
 
 function savePlan() {
-
-    localStorage.setItem(
-        "pujoPlan",
-        JSON.stringify(plan)
-    );
+    try {
+        localStorage.setItem("pujoPlan", JSON.stringify(plan));
+    } catch (error) {
+        console.warn("Could not save plan:", error);
+    }
 
     updatePlanUI();
 }
@@ -289,17 +304,32 @@ function readAliases(raw) {
     return "";
 }
 
+function appPandalId(raw, name) {
+    const sourceId = String(raw["Puja ID"] || "").trim();
+    if (sourceId) return sourceId;
+
+    // These two no-ID rows were explicitly marked as added to the directory in
+    // the user's reviewed route workbook. Keep stable runtime IDs without
+    // rewriting the user's spreadsheet. Other no-ID/duplicate rows remain hidden.
+    const reviewedNoIdRows = {
+        "beniatolasarbojonindurgotsab": "CUSTOM-BENIATOLA",
+        "dakshindariyouth": "CUSTOM-DAKSHINDARI"
+    };
+    return reviewedNoIdRows[normalizeRouteKey(name)] || "";
+}
+
 function normalizePandal(raw) {
 
-    const lat =
-        Number(raw["Latitude"]);
-
-    const lng =
-        Number(raw["Longitude"]);
+    const latRaw = raw["Latitude"];
+    const lngRaw = raw["Longitude"];
+    const lat = latRaw === null || latRaw === undefined || String(latRaw).trim() === "" ? NaN : Number(latRaw);
+    const lng = lngRaw === null || lngRaw === undefined || String(lngRaw).trim() === "" ? NaN : Number(lngRaw);
 
     const hasCoords =
         Number.isFinite(lat) &&
-        Number.isFinite(lng);
+        Number.isFinite(lng) &&
+        Math.abs(lat) <= 90 &&
+        Math.abs(lng) <= 180;
 
     const name =
         String(raw["Name of the Puja"] || "").trim() ||
@@ -309,7 +339,7 @@ function normalizePandal(raw) {
         String(raw["Name of the Club"] || "").trim();
 
     return {
-        id: String(raw["Puja ID"] || "").trim(),
+        id: appPandalId(raw, name),
         name,
         club: club.toLowerCase() === name.toLowerCase() ? "" : club,
         zone: String(raw["Zone"] || "").trim(),
@@ -366,10 +396,12 @@ async function loadPandals() {
         const rawRows =
             XLSX.utils.sheet_to_json(sheet);
 
-        pandals =
-            rawRows
-                .map(normalizePandal)
-                .filter(pandal => pandal.id);
+        pandalCatalog = rawRows
+            .map(normalizePandal)
+            .filter(pandal => pandal.name && pandal.name !== "Unnamed Puja");
+
+        pandals = pandalCatalog.filter(pandal => pandal.id);
+        indexCatalog();
 
 
         console.log(
@@ -383,6 +415,7 @@ async function loadPandals() {
         populateZoneStrip();
 
         updatePlanUI();
+        renderExploreRoutes();
 
 
         // Build the search index once the first paint is done (a few
@@ -625,8 +658,7 @@ function isInPlan(pandal) {
 
 
     return plan.some(
-        item =>
-            String(item.id) === id
+        item => !isRoutePlanEntry(item) && String(item.id) === id
     );
 }
 
@@ -639,9 +671,7 @@ function togglePlan(id) {
 
     const index =
         plan.findIndex(
-            item =>
-                String(item.id) ===
-                String(id)
+            item => !isRoutePlanEntry(item) && String(item.id) === String(id)
         );
 
 
@@ -673,6 +703,7 @@ function togglePlan(id) {
 
 
     savePlan();
+    clearRoute();
 
 
     // Refresh map popup + icon, if this pandal has one
@@ -732,219 +763,171 @@ function togglePlan(id) {
 // ----------------------------------------
 
 function updatePlanUI() {
+    const count = plan.length;
+    document.getElementById("plan-count").textContent = count;
 
-    const count =
-        plan.length;
+    const routeCount = plan.filter(isRoutePlanEntry).length;
+    const pandalCount = plan.filter(item => !isRoutePlanEntry(item)).length;
+    const summaryParts = [];
+    if (routeCount) summaryParts.push(`${routeCount} ${routeCount === 1 ? "route" : "routes"}`);
+    if (pandalCount) summaryParts.push(`${pandalCount} ${pandalCount === 1 ? "pandal" : "pandals"}`);
+    document.getElementById("plan-summary").textContent = summaryParts.join(" · ") || "0 items";
 
-
-    document.getElementById(
-        "plan-count"
-    ).textContent =
-        count;
-
-
-    document.getElementById(
-        "plan-summary"
-    ).textContent =
-        `${count} ${count === 1 ? "pandal" : "pandals"}`;
-
-
-    const list =
-        document.getElementById(
-            "plan-list"
-        );
-
-
+    const list = document.getElementById("plan-list");
     list.innerHTML = "";
-
+    const showRouteButton = document.getElementById("show-route");
+    if (showRouteButton) showRouteButton.disabled = count === 0;
 
     if (count === 0) {
-
         list.innerHTML = `
             <div class="plan-empty">
-
                 Your plan is empty.
-
                 <br>
-
-                Click a pandal and add it.
-
-            </div>
-        `;
-
+                Add individual pandals from the map or directory. Curated circuits live in Explore.
+            </div>`;
         return;
     }
 
+    plan.forEach((entry, index) => {
+        if (isRoutePlanEntry(entry)) {
+            const route = getCuratedRoute(entry.routeId);
+            if (!route) {
+                // Don't discard saved data if a route definition is temporarily absent.
+                const missing = document.createElement("div");
+                missing.className = "plan-route-item plan-entry";
+                missing.innerHTML = `<div class="plan-route-head"><span class="plan-route-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="2.2"></circle><circle cx="18" cy="6" r="2.2"></circle><path d="M6 15.8V10a4 4 0 0 1 4-4h5.8"></path></svg></span><span class="plan-name">${routesState === "loading" ? "Loading saved route…" : "Saved route unavailable"}</span><button class="remove-plan-item" type="button" aria-label="Remove unavailable route">×</button></div>`;
+                missing.querySelector("button").addEventListener("click", () => {
+                    plan.splice(index, 1);
+                    savePlan();
+                });
+                list.appendChild(missing);
+                return;
+            }
 
-    plan.forEach(
-    (pandal, index) => {
-
-        const item =
-            document.createElement("div");
-
-        item.className =
-            "plan-item";
-
-        item.draggable = true;
-
-        item.dataset.index = index;
-
-        item.innerHTML = `
-
-                <div class="plan-number">
-                    ${index + 1}
+            const item = document.createElement("div");
+            item.className = "plan-route-item plan-entry";
+            item.draggable = true;
+            item.dataset.index = index;
+            const routeStops = (route.stops || []).map(resolveRouteStop);
+            const routeAddress = `${route.area || "Kolkata"} · ${routeStops.length} stops`;
+            const renderPlanStops = stopsToRender => stopsToRender.map((stop, stopIndex) => `
+                <li class="plan-route-stop">
+                    <span class="plan-route-stop-number">${stopIndex + 1}</span>
+                    <span class="plan-route-stop-name">${escapeHTML(stop.name)}</span>
+                    <a href="${escapeHTML(stop.mapUrl)}" target="_blank" rel="noopener noreferrer">Maps ↗</a>
+                </li>`).join("");
+            item.innerHTML = `
+                <div class="plan-route-head">
+                    <button type="button" class="plan-route-expand" aria-expanded="false">
+                        <span class="plan-route-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="2.2"></circle><circle cx="18" cy="6" r="2.2"></circle><path d="M6 15.8V10a4 4 0 0 1 4-4h5.8"></path></svg></span>
+                        <span class="plan-info">
+                            <span class="plan-name">${escapeHTML(route.title)}</span>
+                            <span class="plan-address">${escapeHTML(routeAddress)}</span>
+                        </span>
+                        <span class="plan-route-chevron" aria-hidden="true">⌄</span>
+                    </button>
+                    <span class="plan-drag-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
+                    <button class="remove-plan-item remove-plan-route" type="button" aria-label="Remove ${escapeHTML(route.title)} from My Plan">×</button>
                 </div>
+                <ol class="plan-route-stops" hidden>${renderPlanStops(routeStops.slice(0, 3))}</ol>
+                ${routeStops.length > 3 ? `<button class="plan-route-more" type="button" data-expanded="false" hidden>View all ${routeStops.length} stops</button>` : ""}`;
 
-                <div class="plan-info">
+            item.querySelector(".plan-route-expand").addEventListener("click", event => {
+                const button = event.currentTarget;
+                const stops = item.querySelector(".plan-route-stops");
+                const opening = stops.hidden;
+                stops.hidden = !opening;
+                button.setAttribute("aria-expanded", String(opening));
+                item.classList.toggle("expanded", opening);
+                const more = item.querySelector(".plan-route-more");
+                if (more) {
+                    more.hidden = !opening;
+                    if (!opening && more.dataset.expanded === "true") {
+                        stops.innerHTML = renderPlanStops(routeStops.slice(0, 3));
+                        more.dataset.expanded = "false";
+                        more.textContent = `View all ${routeStops.length} stops`;
+                    }
+                }
+            });
 
-                    <div class="plan-name">
-                        ${escapeHTML(
-                            pandal.name ||
-                            "Unnamed Puja"
-                        )}
-                    </div>
-
-                    <div class="plan-address">
-                        ${escapeHTML(
-                            pandal.address ||
-                            ""
-                        )}
-                    </div>
-
-                </div>
-
-                <button
-                    class="remove-plan-item"
-                    data-id="${escapeAttribute(
-                        pandal.id
-                    )}"
-                >
-                    ×
-                </button>
-            `;
-
-            item.addEventListener(
-    "dragstart",
-    () => {
-
-        draggedPlanIndex = index;
-
-        item.classList.add("dragging");
-    }
-);
-
-item.addEventListener(
-    "dragend",
-    () => {
-
-        draggedPlanIndex = null;
-
-        item.classList.remove("dragging");
-
-        document
-            .querySelectorAll(".plan-item")
-            .forEach(
-                element =>
-                    element.classList.remove(
-                        "drag-over"
-                    )
-            );
-    }
-);
-
-item.addEventListener(
-    "dragover",
-    event => {
-
-        event.preventDefault();
-
-        item.classList.add("drag-over");
-    }
-);
-
-item.addEventListener(
-    "dragleave",
-    () => {
-
-        item.classList.remove("drag-over");
-    }
-);
-
-item.addEventListener(
-    "drop",
-    event => {
-
-        event.preventDefault();
-
-        item.classList.remove("drag-over");
-
-        const targetIndex =
-            Number(item.dataset.index);
-
-        if (
-            draggedPlanIndex === null ||
-            draggedPlanIndex === targetIndex
-        ) {
+            const moreButton = item.querySelector(".plan-route-more");
+            if (moreButton) {
+                moreButton.addEventListener("click", () => {
+                    const showAll = moreButton.dataset.expanded !== "true";
+                    const stops = item.querySelector(".plan-route-stops");
+                    stops.innerHTML = renderPlanStops(showAll ? routeStops : routeStops.slice(0, 3));
+                    moreButton.dataset.expanded = String(showAll);
+                    moreButton.textContent = showAll ? "Show fewer stops" : `View all ${routeStops.length} stops`;
+                });
+            }
+            item.querySelector(".remove-plan-route").addEventListener("click", () => {
+                const routeIndex = plan.findIndex(candidate => isRoutePlanEntry(candidate) && candidate.routeId === route.id);
+                if (routeIndex >= 0) plan.splice(routeIndex, 1);
+                savePlan();
+                clearRoute();
+                renderExploreRoutes();
+            });
+            wirePlanItemDrag(item, index);
+            list.appendChild(item);
             return;
         }
 
-        const movedPandal =
-            plan.splice(
-                draggedPlanIndex,
-                1
-            )[0];
+        const pandal = entry;
+        const item = document.createElement("div");
+        item.className = "plan-item plan-entry";
+        item.draggable = true;
+        item.dataset.index = index;
+        item.innerHTML = `
+            <div class="plan-number">${index + 1}</div>
+            <div class="plan-info">
+                <div class="plan-name">${escapeHTML(pandal.name || "Unnamed Puja")}</div>
+                <div class="plan-address">${escapeHTML(pandal.address || "")}</div>
+            </div>
+            <span class="plan-drag-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
+            <button class="remove-plan-item" type="button" data-id="${escapeHTML(pandal.id || "")}" aria-label="Remove ${escapeHTML(pandal.name || "pandal")} from My Plan">×</button>`;
 
-        plan.splice(
-            targetIndex,
-            0,
-            movedPandal
-        );
+        wirePlanItemDrag(item, index);
 
-        savePlan();
+        item.addEventListener("click", event => {
+            if (event.target.closest("button") || event.target.closest("a")) return;
+            const current = pandal.id
+                ? catalogById.get(String(pandal.id))
+                : null;
+            focusPandal(current || pandal);
+        });
 
-        clearRoute();
-    }
-);
-
-            // Clicking the item focuses its marker
-            item.addEventListener(
-                "click",
-                event => {
-
-                    if (
-                        event.target.classList.contains(
-                            "remove-plan-item"
-                        )
-                    ) {
-                        return;
-                    }
-
-                    focusPandal(pandal);
-                }
-            );
-
-
-            // Remove button
-            item.querySelector(
-                ".remove-plan-item"
-            ).addEventListener(
-                "click",
-                () => {
-
-                    togglePlan(
-                        pandal.id
-                    );
-
-                }
-            );
-
-
-            list.appendChild(item);
-
-        }
-    );
+        item.querySelector(".remove-plan-item").addEventListener("click", () => togglePlan(pandal.id));
+        list.appendChild(item);
+    });
 }
 
+function wirePlanItemDrag(item, index) {
+    item.addEventListener("dragstart", event => {
+        draggedPlanIndex = index;
+        item.classList.add("dragging");
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    });
+    item.addEventListener("dragend", () => {
+        draggedPlanIndex = null;
+        item.classList.remove("dragging");
+        document.querySelectorAll(".plan-entry").forEach(element => element.classList.remove("drag-over"));
+    });
+    item.addEventListener("dragover", event => {
+        event.preventDefault();
+        item.classList.add("drag-over");
+    });
+    item.addEventListener("dragleave", () => item.classList.remove("drag-over"));
+    item.addEventListener("drop", event => {
+        event.preventDefault();
+        item.classList.remove("drag-over");
+        const targetIndex = Number(item.dataset.index);
+        if (draggedPlanIndex === null || draggedPlanIndex === targetIndex) return;
+        const movedEntry = plan.splice(draggedPlanIndex, 1)[0];
+        plan.splice(targetIndex, 0, movedEntry);
+        savePlan();
+        clearRoute();
+    });
+}
 
 // ----------------------------------------
 // 13. FOCUS PANDAL
@@ -1007,34 +990,87 @@ const planPanel =
         "plan-panel"
     );
 
-const closePlan =
-    document.getElementById(
-        "close-plan"
-    );
+const closePlan = document.getElementById("close-plan");
+const planBackdrop = document.getElementById("plan-backdrop");
+let lastPlanFocus = null;
+let planCloseTimer = null;
 
+planButton.addEventListener("click", openPlanPanel);
+closePlan.addEventListener("click", closePlanPanel);
+planBackdrop.addEventListener("click", closePlanPanel);
 
-planButton.addEventListener(
-    "click",
-    () => {
-
-        planPanel.style.display =
-            "flex";
-
+function openPlanPanel() {
+    if (planCloseTimer) {
+        clearTimeout(planCloseTimer);
+        planCloseTimer = null;
     }
-);
 
+    lastPlanFocus = document.activeElement;
+    planPanel.style.display = "flex";
+    planButton.setAttribute("aria-expanded", "true");
+    document.body.classList.add("plan-open");
+    planBackdrop.classList.add("visible");
 
-closePlan.addEventListener(
-    "click",
-    closePlanPanel
-);
-
+    // Apply the open state on the next frame so the drawer transition can run.
+    requestAnimationFrame(() => {
+        planPanel.classList.add("is-open");
+        closePlan.focus({ preventScroll: true });
+    });
+}
 
 function closePlanPanel() {
+    planPanel.classList.remove("is-open");
+    planBackdrop.classList.remove("visible");
+    document.body.classList.remove("plan-open");
+    planButton.setAttribute("aria-expanded", "false");
 
-    planPanel.style.display =
-        "none";
+    if (planCloseTimer) clearTimeout(planCloseTimer);
+    planCloseTimer = setTimeout(() => {
+        if (!planPanel.classList.contains("is-open")) {
+            planPanel.style.display = "none";
+        }
+        planCloseTimer = null;
+    }, 220);
+
+    const focusTarget = lastPlanFocus && lastPlanFocus.isConnected
+        ? lastPlanFocus
+        : planButton;
+    if (focusTarget && typeof focusTarget.focus === "function") {
+        focusTarget.focus({ preventScroll: true });
+    }
 }
+
+// Keep keyboard focus inside the plan while it behaves as a modal.
+document.addEventListener("keydown", event => {
+    if (!planPanel.classList.contains("is-open")) return;
+
+    if (event.key === "Escape") {
+        event.preventDefault();
+        closePlanPanel();
+        return;
+    }
+
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(planPanel.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(element => element.getClientRects().length > 0);
+
+    if (!focusable.length) {
+        event.preventDefault();
+        planPanel.focus({ preventScroll: true });
+        return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !planPanel.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !planPanel.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+    }
+});
 
 
 // ----------------------------------------
@@ -1067,6 +1103,8 @@ document.getElementById(
         plan = [];
 
         savePlan();
+        clearRoute();
+        renderExploreRoutes();
 
 
         // Refresh all marker popups and icons
@@ -1148,10 +1186,10 @@ function setViewMode(mode) {
         mode === "explore" ? "flex" : "none";
 
     dockButtons.forEach(button => {
-        button.classList.toggle(
-            "active",
-            button.dataset.view === mode
-        );
+        const isActive = button.dataset.view === mode;
+        button.classList.toggle("active", isActive);
+        if (isActive) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
     });
 
 
@@ -1964,93 +2002,45 @@ function cssEscape(value) {
 // ----------------------------------------
 
 async function showRoute() {
+    const allStops = getPlannedResolvedStops();
+    const locatedStops = allStops.filter(stop => {
+        const lat = Number(stop.lat);
+        const lng = Number(stop.lng);
+        return stop.hasCoords !== false && Number.isFinite(lat) && Number.isFinite(lng) &&
+            lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    });
+    const skippedCount = allStops.length - locatedStops.length;
 
-    if (plan.length < 2) {
-
-        showAlert(
-            "Add at least 2 pandals to create a route."
-        );
-
+    if (locatedStops.length < 2) {
+        showAlert("At least two planned stops need coordinates to draw a route. Their Google Maps links are still available in My Plan.");
         return;
     }
 
+    // The route should be visible on the map, not hidden behind the plan modal.
+    closePlanPanel();
+    if (viewMode !== "map") {
+        setViewMode("map");
+    }
 
-    const coordinates = plan
-        .map(pandal => `${pandal.lng},${pandal.lat}`)
-        .join(";");
-
-
-    const url =
-        `https://router.project-osrm.org/route/v1/driving/` +
-        `${coordinates}?overview=full&geometries=geojson`;
-
-
-    const button =
-        document.getElementById("show-route");
-
-
-    button.textContent =
-        "Calculating...";
-
+    const coordinates = locatedStops.map(stop => `${Number(stop.lng)},${Number(stop.lat)}`).join(";");
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`;
+    const button = document.getElementById("show-route");
+    button.textContent = "Calculating…";
     button.disabled = true;
 
-
     try {
-
-        const response =
-            await fetch(url);
-
-
-        if (!response.ok) {
-            throw new Error(
-                "Routing request failed."
-            );
-        }
-
-
-        const data =
-            await response.json();
-
-
-        if (
-            data.code !== "Ok" ||
-            !data.routes ||
-            !data.routes.length
-        ) {
-            throw new Error(
-                "No route found."
-            );
-        }
-
-
-        const route =
-            data.routes[0];
-
-
-        drawRoute(
-            route.geometry
-        );
-
-
-        displayRouteSummary(
-            route
-        );
-
-
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Routing request failed.");
+        const data = await response.json();
+        if (data.code !== "Ok" || !data.routes || !data.routes.length) throw new Error("No route found.");
+        drawRoute(data.routes[0].geometry);
+        displayRouteSummary(data.routes[0], skippedCount);
     } catch (error) {
-
         console.error(error);
-
-        showAlert(
-            "Couldn't calculate the route. Try again."
-        );
-
+        showAlert("Couldn't calculate the route. Check your connection and try again.");
     } finally {
-
-        button.textContent =
-            "Show Route";
-
-        button.disabled = false;
+        button.textContent = "Preview route";
+        button.disabled = plan.length === 0;
     }
 }
 
@@ -2093,7 +2083,7 @@ function drawRoute(geometry) {
 // ROUTE SUMMARY
 // ----------------------------------------
 
-function displayRouteSummary(route) {
+function displayRouteSummary(route, skippedCount = 0) {
 
     const summary =
         document.getElementById(
@@ -2133,11 +2123,12 @@ function displayRouteSummary(route) {
     }
 
 
+    const skippedText = skippedCount > 0
+        ? ` · ${skippedCount} stop${skippedCount === 1 ? "" : "s"} without coordinates omitted`
+        : "";
     summary.innerHTML = `
         <strong>${distanceKm} km</strong>
-        · approximately
-        <strong>${timeText}</strong>
-        by road
+        · approximately <strong>${timeText}</strong> by road${escapeHTML(skippedText)}
     `;
 
 
@@ -2338,6 +2329,251 @@ function showConfirm(message, confirmLabel = "Confirm") {
 }
 
 
+
+// ----------------------------------------
+// 25B. CURATED ROUTES — data lives in data/routes.json, separate from the main sheet.
+// A route uses a Puja ID only while that ID still exists in the current dataset.
+// If a reviewed no-ID row is matched by exact datasetName, its current Maps URL
+// is used directly. Only stops with no dataset match use "name Durga Puja" search.
+// ----------------------------------------
+
+function normalizeRouteKey(value) {
+    return String(value || "")
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "");
+}
+
+function isRoutePlanEntry(item) {
+    return Boolean(item && item.type === "route" && item.routeId);
+}
+
+function getCuratedRoute(routeId) {
+    return curatedRoutes.find(route => route.id === routeId) || null;
+}
+
+function indexCatalog() {
+    catalogById = new Map();
+    catalogByNameKey = new Map();
+    resolvedStopCache = new WeakMap();
+
+    pandalCatalog.forEach(pandal => {
+        const id = String(pandal.id);
+        if (!catalogById.has(id)) catalogById.set(id, pandal);
+
+        const key = normalizeRouteKey(pandal.name);
+        const rows = catalogByNameKey.get(key);
+        if (rows) rows.push(pandal);
+        else catalogByNameKey.set(key, [pandal]);
+    });
+}
+
+function findRouteDatasetRecord(stop) {
+    if (stop.pandalId) {
+        const byId = catalogById.get(String(stop.pandalId));
+        if (byId) return byId;
+    }
+
+    if (stop.datasetName) {
+        const exact = catalogByNameKey.get(normalizeRouteKey(stop.datasetName)) || [];
+        if (exact.length === 1) return exact[0];
+    }
+
+    return null;
+}
+
+function googleMapsSearchForStop(name) {
+    const query = `${String(name || "").trim()} Durga Puja, Kolkata`.trim();
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function safeWebUrl(url, fallback) {
+    const value = String(url || "").trim();
+    return /^https?:\/\//i.test(value) ? value : fallback;
+}
+
+function resolveRouteStop(stop) {
+    if (!stop || typeof stop !== "object") return buildRouteStop(stop || {});
+    let resolved = resolvedStopCache.get(stop);
+    if (!resolved) {
+        resolved = buildRouteStop(stop);
+        resolvedStopCache.set(stop, resolved);
+    }
+    return resolved;
+}
+
+function buildRouteStop(stop) {
+    const record = findRouteDatasetRecord(stop);
+    const fallbackUrl = googleMapsSearchForStop(stop.name);
+    let mapUrl = fallbackUrl;
+    let mapSource = "name-search";
+
+    // Prefer the reviewed destination URL from the matched dataset record.
+    // If it is absent, coordinates are the next-best destination; otherwise
+    // use a name-based search and label that fallback subtly in the list.
+    const recordMapUrl = record ? safeWebUrl(record.googleMapsLink, "") : "";
+    if (recordMapUrl) {
+        mapUrl = recordMapUrl;
+        mapSource = "dataset-link";
+    } else if (record && record.hasCoords && Number.isFinite(Number(record.lat)) && Number.isFinite(Number(record.lng))) {
+        mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${record.lat},${record.lng}`)}`;
+        mapSource = "coordinates";
+    }
+
+    return {
+        source: stop,
+        record,
+        id: record ? record.id : "",
+        name: stop.name,
+        address: record ? (record.address || record.landmark || record.zone || "") : "",
+        lat: record && record.hasCoords ? record.lat : null,
+        lng: record && record.hasCoords ? record.lng : null,
+        hasCoords: Boolean(record && record.hasCoords),
+        confidence: record ? record.confidence : "unlocated",
+        mapUrl,
+        mapSource
+    };
+}
+
+async function loadCuratedRoutes() {
+    try {
+        const response = await fetch("data/routes.json?v=0.18");
+        if (!response.ok) throw new Error("Could not load curated routes.");
+        const routes = await response.json();
+        curatedRoutes = Array.isArray(routes)
+            ? routes.filter(route => route && route.id && route.title && Array.isArray(route.stops) && route.stops.length)
+            : [];
+        routesState = "ready";
+    } catch (error) {
+        console.error(error);
+        routesState = "error";
+    }
+
+    renderExploreRoutes();
+    updatePlanUI();
+}
+
+function renderExploreRoutes() {
+    const container = document.getElementById("route-grid");
+    if (!container) return;
+
+    if (!curatedRoutes.length) {
+        renderedRoutesKey = "";
+        const message = routesState === "error"
+            ? "Routes could not be loaded. Refresh the page to try again."
+            : routesState === "ready"
+                ? "No routes are published yet."
+                : "Loading routes…";
+        container.innerHTML = `<p class="route-loading" role="status">${message}</p>`;
+        return;
+    }
+
+    // Explore is intentionally independent from My Plan. Only rebuild the
+    // cards when route/dataset content changes, preserving open disclosures.
+    const key = `${curatedRoutes.length}:${pandalCatalog.length}`;
+    if (key === renderedRoutesKey) return;
+    renderedRoutesKey = key;
+
+    container.innerHTML = curatedRoutes.map(route => {
+        const stops = (route.stops || []).map(resolveRouteStop);
+        const detailsId = `route-details-${escapeHTML(route.id)}`;
+        const stopRows = stops.map((stop, index) => {
+            const nameSearchHint = stop.mapSource === "name-search"
+                ? `<span class="route-stop-search-hint">Name search</span>`
+                : "";
+            const linkLabel = stop.mapSource === "name-search"
+                ? `Search Google Maps for ${stop.name}; location not matched in Pujodex`
+                : `Open ${stop.name} individually in Google Maps`;
+            return `
+                <li class="route-stop">
+                    <span class="route-stop-number" aria-hidden="true">${index + 1}</span>
+                    <span class="route-stop-main">
+                        <span class="route-stop-name">${escapeHTML(stop.name)}</span>
+                        ${nameSearchHint}
+                    </span>
+                    <a class="route-map-link" href="${escapeHTML(stop.mapUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHTML(linkLabel)}">Maps ↗</a>
+                </li>`;
+        }).join("");
+
+        return `
+            <article class="route-card" data-route-card="${escapeHTML(route.id)}">
+                <div class="route-card-summary">
+                    <div class="route-card-titles">
+                        <p class="route-area">${escapeHTML(route.area || "Kolkata")}</p>
+                        <h3>${escapeHTML(route.title)}</h3>
+                        <p class="route-meta">${stops.length} ${stops.length === 1 ? "stop" : "stops"}</p>
+                    </div>
+                    <button class="route-details-toggle" type="button" aria-expanded="false" aria-controls="${detailsId}" data-route-details="${escapeHTML(route.id)}">View stops</button>
+                </div>
+                <div class="route-details" id="${detailsId}" hidden>
+                    <ol class="route-stop-list">${stopRows}</ol>
+                </div>
+            </article>`;
+    }).join("");
+}
+
+// Native buttons keep the route disclosures keyboard-accessible. Explore
+// only reveals stop details; it never reads or writes the saved My Plan.
+const exploreRouteGrid = document.getElementById("route-grid");
+if (exploreRouteGrid) {
+    exploreRouteGrid.addEventListener("click", event => {
+        const toggle = event.target.closest("[data-route-details]");
+        if (!toggle) return;
+
+        const details = document.getElementById(`route-details-${toggle.dataset.routeDetails}`);
+        if (!details) return;
+
+        const willOpen = details.hidden;
+        details.hidden = !willOpen;
+        toggle.setAttribute("aria-expanded", String(willOpen));
+        toggle.textContent = willOpen ? "Hide stops" : "View stops";
+    });
+}
+
+function getPlannedResolvedStops() {
+    const stops = [];
+    const seen = new Set();
+
+    plan.forEach(entry => {
+        if (isRoutePlanEntry(entry)) {
+            const route = getCuratedRoute(entry.routeId);
+            if (!route) return;
+            (route.stops || []).forEach(sourceStop => {
+                const resolved = resolveRouteStop(sourceStop);
+                const key = resolved.id
+                    ? `id:${resolved.id}`
+                    : resolved.hasCoords
+                        ? `coords:${resolved.lat.toFixed(6)},${resolved.lng.toFixed(6)}`
+                        : `name:${normalizeRouteKey(resolved.name)}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    stops.push(resolved);
+                }
+            });
+        } else if (entry) {
+            // Refresh legacy saved pandals from today's dataset by ID, so a location
+            // the user improves in the sheet also updates their saved plan.
+            const current = entry.id
+                ? catalogById.get(String(entry.id))
+                : null;
+            const resolved = current || entry;
+            const validCoords = Number.isFinite(Number(resolved.lat)) && Number.isFinite(Number(resolved.lng)) &&
+                resolved.lat !== null && resolved.lng !== null && resolved.hasCoords !== false;
+            const key = resolved.id
+                ? `id:${resolved.id}`
+                : validCoords
+                    ? `coords:${Number(resolved.lat).toFixed(6)},${Number(resolved.lng).toFixed(6)}`
+                    : `name:${normalizeRouteKey(resolved.name)}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                stops.push({ ...resolved, hasCoords: validCoords });
+            }
+        }
+    });
+    return stops;
+}
+
 // ----------------------------------------
 // 26. USER LOCATION
 // The button toggles a LIVE navigator.geolocation.watchPosition()
@@ -2404,58 +2640,72 @@ locateButton.addEventListener(
 
 
 function startWatchingLocation() {
-
+    if (!window.isSecureContext && location.protocol !== "https:") {
+        showAlert("Location needs a secure HTTPS page. Open the Pujodex GitHub Pages link and try again.");
+        return;
+    }
     if (!("geolocation" in navigator)) {
-
-        showAlert(
-            "Location isn't available in this browser."
-        );
-
+        showAlert("Location isn't available in this browser.");
         return;
     }
 
-
     locateButton.classList.add("locating");
-    locateButton.classList.remove("locate-error");
-
+    locateButton.classList.remove("locate-error", "active");
+    locateButton.setAttribute("aria-pressed", "false");
     hasCenteredOnUser = false;
     lastAppliedLatLng = null;
     lastAppliedTime = 0;
-
-
-    locationWatchId =
-        navigator.geolocation.watchPosition(
-
-            position => {
-
-                locateButton.classList.remove("locating");
-                locateButton.classList.add("active");
-
-                locateButton.setAttribute(
-                    "aria-pressed",
-                    "true"
-                );
-
-                handlePositionUpdate(position);
-            },
-
-            error => {
-
-                locateButton.classList.add("locate-error");
-
-                stopWatchingLocation();
-
-                handleLocationError(error);
-            },
-
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 5000
-            }
-        );
+    locationFallbackAttempted = false;
+    requestLocationWatch(true);
 }
 
+let locationFallbackAttempted = false;
+
+function requestLocationWatch(highAccuracy) {
+    if (locationWatchId !== null) {
+        navigator.geolocation.clearWatch(locationWatchId);
+        locationWatchId = null;
+    }
+
+    const options = highAccuracy
+        ? { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 }
+        : { enableHighAccuracy: false, timeout: 45000, maximumAge: 300000 };
+
+    locationWatchId = navigator.geolocation.watchPosition(
+        position => {
+            locateButton.classList.remove("locating", "locate-error");
+            locateButton.classList.add("active");
+            locateButton.setAttribute("aria-pressed", "true");
+            handlePositionUpdate(position);
+        },
+        error => {
+            // Permission denial is definitive; transient timeout/unavailable errors
+            // get one lower-accuracy retry if a first fix has not arrived yet.
+            if (error.code === error.PERMISSION_DENIED) {
+                locateButton.classList.add("locate-error");
+                stopWatchingLocation();
+                handleLocationError(error);
+                return;
+            }
+
+            if (!hasCenteredOnUser && highAccuracy && !locationFallbackAttempted) {
+                locationFallbackAttempted = true;
+                requestLocationWatch(false);
+                return;
+            }
+
+            if (!hasCenteredOnUser) {
+                locateButton.classList.add("locate-error");
+                stopWatchingLocation();
+                handleLocationError(error);
+            } else {
+                // A later intermittent error shouldn't erase a good fix or stop tracking.
+                console.warn("Location update temporarily unavailable:", error.message);
+            }
+        },
+        options
+    );
+}
 
 // The filtering described in this section's opening comment — kept
 // separate from showUserLocation() so "should this update apply" and
@@ -2606,9 +2856,9 @@ function handleLocationError(error) {
             "Location permission denied — you can still browse the map manually.";
 
     } else if (error.code === error.TIMEOUT) {
-
-        message =
-            "Location request timed out. Try again.";
+        message = "Location request timed out. Check device location settings and try again.";
+    } else if (error.code === error.POSITION_UNAVAILABLE) {
+        message = "Your device couldn't determine a location. Try moving outdoors or enabling device location.";
     }
 
     showAlert(message);
@@ -2650,10 +2900,16 @@ const navDock =
 
 syncDockHeight();
 
-window.addEventListener(
-    "resize",
-    syncDockHeight
-);
+function syncTopbarClearance() {
+    const topbar = document.querySelector(".topbar");
+    if (!topbar) return;
+    const clearance = Math.ceil(topbar.getBoundingClientRect().bottom + 9);
+    document.documentElement.style.setProperty("--topbar-clearance", `${clearance}px`);
+}
+
+syncTopbarClearance();
+window.addEventListener("resize", syncDockHeight);
+window.addEventListener("resize", syncTopbarClearance);
 
 
 // ----------------------------------------
@@ -3692,3 +3948,5 @@ setViewMode("map");
 loadSavedPlan();
 
 loadPandals();
+
+loadCuratedRoutes();

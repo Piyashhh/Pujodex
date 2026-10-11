@@ -19,7 +19,7 @@
     <!-- Icons / install -->
     <meta name="application-name" content="Pujodex">
     <meta name="apple-mobile-web-app-title" content="Pujodex">
-    <meta name="theme-color" content="#fbf3e3">
+    <meta name="theme-color" content="#f6efdf">
     <link rel="icon" href="favicon.ico" sizes="48x48">
     <link rel="icon" href="favicon.svg" type="image/svg+xml" sizes="any">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -114,7 +114,7 @@
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     >
 
-    <link rel="stylesheet" href="style.css?v=0.14">
+    <link rel="stylesheet" href="style.css?v=0.18">
 </head>
 
 <body>
@@ -155,7 +155,7 @@
 
         </div>
 
-        <button id="plan-button" aria-label="Open My Plan">
+        <button id="plan-button" type="button" aria-label="Open My Plan" aria-controls="plan-panel" aria-expanded="false">
             <span class="plan-label">My Plan</span>
             <span id="plan-count">0</span>
         </button>
@@ -203,14 +203,21 @@
             <div id="list-rows"></div>
         </div>
 
-        <!-- Explore — placeholder for now -->
-        <section id="explore-view">
-            <div class="explore-placeholder">
-                <svg class="explore-logo" viewBox="0 0 672.75 142.98" aria-hidden="true" focusable="false"><use href="#pujodex-logo"></use></svg>
-                <h2>Explore</h2>
-                <p>Still under construction, will be available soon.</p>
+        <!-- Curated routes live separately from the pandal dataset. -->
+        <section id="explore-view" aria-labelledby="explore-title">
+            <div class="explore-scroll">
+                <header class="explore-heading">
+                    <h2 id="explore-title">Pujo Routes</h2>
+                    <p>Browse a route, then open any stop in Google Maps.</p>
+                </header>
+                <div id="route-grid" class="route-grid">
+                    <p class="route-loading" role="status">Loading routes…</p>
+                </div>
             </div>
         </section>
+
+        <!-- Route result summary floats above the map after the plan drawer closes. -->
+        <div id="route-summary" role="status" aria-live="polite"></div>
     </main>
 
 
@@ -245,14 +252,17 @@
     </nav>
 
 
+    <!-- My Plan modal backdrop. It deliberately sits above the bottom dock too. -->
+    <div id="plan-backdrop" aria-hidden="true"></div>
+
     <!-- Plan panel -->
-    <aside id="plan-panel" aria-label="My Pujo Plan">
+    <aside id="plan-panel" role="dialog" aria-modal="true" aria-labelledby="plan-heading" tabindex="-1" aria-label="My Pujo Plan">
 
         <div class="plan-header">
 
             <div>
-                <h2>My Pujo Plan</h2>
-                <span id="plan-summary">0 pandals</span>
+                <h2 id="plan-heading">My Pujo Plan</h2>
+                <span id="plan-summary" aria-live="polite">0 items</span>
             </div>
 
             <button id="close-plan" type="button" aria-label="Close My Pujo Plan">
@@ -264,16 +274,13 @@
 
         <div id="plan-list"></div>
         
-        <div id="route-summary"></div>
-
-
         <div class="plan-actions">
 
-    <button id="show-route">
-        Show Route
+    <button id="show-route" type="button" disabled>
+        Preview route
     </button>
 
-    <button id="clear-plan">
+    <button id="clear-plan" type="button">
         Clear Plan
     </button>
 
@@ -288,7 +295,9 @@
     <!-- SheetJS -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
-    <script src="app.js?v=0.14"></script>
+    <script src="app.js?v=0.18"></script>
+
+    <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "ce8f844a497a4b469931059f099d6bb9"}'></script><!-- End Cloudflare Web Analytics -->
 
 </body>
 </html>
